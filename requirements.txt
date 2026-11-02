@@ -1,0 +1,24 @@
+# 自习室座位占用识别系统 —— 依赖清单
+# 安装：pip install -r requirements.txt
+# 注：Python 3.10 环境下验证
+
+# 目标检测（含 PyTorch、OpenCV、numpy 等依赖）
+ultralytics>=8.3.0
+
+# 后端服务
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+
+# 图像处理
+opencv-python>=4.9.0
+pillow>=10.0.0
+
+# 配置与数据
+pyyaml>=6.0
+numpy>=1.24.0
+
+# 数据导出（Excel）
+openpyxl>=3.1.0
+
+# 注：LabelImg 仅标注阶段使用，且需较老的 PyQt 版本，不写入本文件
+#     安装命令：pip install labelimg

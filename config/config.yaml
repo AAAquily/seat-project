@@ -1,0 +1,75 @@
+# ============================================================
+# 自习室座位占用识别系统 —— 主配置文件
+# 修改后无需改代码，重启服务即可生效
+# ============================================================
+
+project:
+  name: seat-project
+  version: 0.1.0
+  description: 自习室座位状态（有人/有物无人/空置）识别与占座判定
+
+# ---------- 模型 ----------
+model:
+  weights: models/yolov8n.pt   # 权重路径；训练完成后改为 runs/detect/train/weights/best.pt
+  conf: 0.35                    # 置信度阈值：低于此值的检测框丢弃
+  iou: 0.45                     # NMS 重叠阈值
+  imgsz: 640                    # 推理输入尺寸
+  device: cpu                   # cpu 或 0（有 NVIDIA 显卡时填 0）
+
+# ---------- 摄像头 ----------
+camera:
+  source: 0                     # 0=本机摄像头；也可填 rtsp://... 或视频文件路径
+  interval_sec: 60              # 抓拍间隔（秒），60 表示每分钟分析一次
+  reconnect_retry: 3            # 断线重连次数
+
+# ---------- 座位 ROI ----------
+# 每个座位一个矩形区域，由「座位标定工具」生成后粘贴到这里
+# 坐标系：图片像素坐标，左上角为原点
+seats: []
+# 示例（标定后照此格式填写）：
+# seats:
+#   - id: A01
+#     name: A区1号
+#     roi: [120, 210, 260, 360]   # x1, y1, x2, y2
+#   - id: A02
+#     name: A区2号
+#     roi: [280, 210, 420, 360]
+
+# ---------- 占座判定 ----------
+occupancy:
+  object_leave_minutes: 30      # 「有物无人」持续多少分钟判定为占座
+  empty_confirm_frames: 3       # 连续多少帧结果一致才更新状态（防抖，避免人走过误报）
+  person_iou_threshold: 0.15    # 人体框与座位 ROI 的重叠率阈值，超过视为「坐在该座位」
+  object_iou_threshold: 0.10    # 物品框与座位 ROI 的重叠率阈值
+  min_object_area_ratio: 0.02   # 物品框面积占 ROI 的最低比例，过滤远处小噪点
+
+# ---------- 豁免时段（不计占座的时段）----------
+exempt_time:
+  enabled: true
+  windows:
+    - name: 午休
+      start: "12:00"
+      end: "13:30"
+      days: [mon, tue, wed, thu, fri]
+    - name: 闭馆前整理
+      start: "21:50"
+      end: "22:10"
+      days: [mon, tue, wed, thu, fri, sat, sun]
+
+# ---------- 服务 ----------
+server:
+  host: 127.0.0.1
+  port: 8000
+  refresh_sec: 5                # 网页看板自动刷新间隔
+
+# ---------- 存储 ----------
+storage:
+  db_path: data/seat.db         # SQLite 数据库文件
+  export_dir: data/exports      # 导出记录目录
+  keep_days: 30                 # 历史记录保留天数，超期自动清理
+
+# ---------- 日志 ----------
+logging:
+  level: INFO                   # DEBUG / INFO / WARNING / ERROR
+  dir: logs
+  file: app.log
