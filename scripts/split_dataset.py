@@ -17,8 +17,8 @@ import random
 import shutil
 import sys
 
-# 项目四类，顺序与 prelabel.py 保持一致
-PROJECT_CLASSES = ["person", "book", "bag", "cup"]
+# 项目类别，顺序与 prelabel.py 保持一致
+PROJECT_CLASSES = ["person", "book", "bag", "cup", "item"]
 
 # 默认划分比例：训练 7 / 验证 1.5 / 测试 1.5
 DEFAULT_RATIOS = {"train": 0.70, "val": 0.15, "test": 0.15}

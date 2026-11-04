@@ -25,10 +25,10 @@ import cv2
 
 from ultralytics import YOLO
 
-# 项目固定的四个类别，顺序即类别索引，不要随意调整
-PROJECT_CLASSES = ["person", "book", "bag", "cup"]
+# 项目固定类别，顺序即类别索引，不要随意调整（新增只能追加到末尾）
+PROJECT_CLASSES = ["person", "book", "bag", "cup", "item"]
 
-# COCO 类别名到项目类别的映射；未列出的类别（chair、laptop、dining table 等）直接丢弃
+# COCO 类别名到项目类别的映射；未列出的类别（chair、dining table 等）直接丢弃
 COCO_TO_PROJECT = {
     "person": "person",
     "book": "book",
@@ -37,6 +37,13 @@ COCO_TO_PROJECT = {
     "suitcase": "bag",
     "bottle": "cup",
     "cup": "cup",
+    # 其余占座物品统一归入 item：笔记本、雨伞、手机等桌面遗留物
+    "laptop": "item",
+    "keyboard": "item",
+    "mouse": "item",
+    "umbrella": "item",
+    "cell phone": "item",
+    "remote": "item",
 }
 
 # 框面积占整图比例的下限，低于此值视为远处噪点
@@ -48,6 +55,7 @@ CLASS_COLORS = {
     "book": (60, 180, 60),
     "bag": (200, 120, 40),
     "cup": (200, 60, 200),
+    "item": (200, 200, 60),
 }
 
 
