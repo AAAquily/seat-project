@@ -31,6 +31,9 @@ data/exports/
 !data/labels/.gitkeep
 !data/images/.gitkeep
 
+# 演示素材（含网络图片，仅存本地，不上传仓库）
+data/video_demo/
+
 # ===== 日志与临时文件 =====
 logs/*
 !logs/.gitkeep
