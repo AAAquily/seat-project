@@ -185,8 +185,8 @@ def main() -> int:
     for directory in [arguments.out_images, arguments.out_labels, arguments.preview_dir]:
         os.makedirs(directory, exist_ok=True)
 
-    # 类别清单文件，LabelImg 切 YOLO 模式时读取它作为可选类别
-    classes_path = os.path.join(os.path.dirname(arguments.out_labels), "classes.txt")
+    # 类别清单文件，LabelImg 切 YOLO 模式时在标签目录里读取它作为可选类别
+    classes_path = os.path.join(arguments.out_labels, "classes.txt")
     with open(classes_path, "w", encoding="utf-8") as classes_file:
         classes_file.write("\n".join(PROJECT_CLASSES) + "\n")
 
