@@ -37,6 +37,7 @@ data/video_demo/
 # 标注工作区与预标注产物（含网络图片，仅存本地）
 data/workspace/
 data/prelabel_preview/
+data/verify_preview/
 
 # ===== 日志与临时文件 =====
 logs/*
