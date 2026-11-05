@@ -94,6 +94,12 @@ exempt_time:
       end: "22:10"
       days: [mon, tue, wed, thu, fri, sat, sun]
 
+# ---------- 演示与看板 ----------
+# 没有摄像头时，看板的「立即检测」按钮与演示接口使用下面这张底图
+demo:
+  image: data/video_demo/main_view.jpg
+  annotated_image: runs/judge/latest.jpg
+
 # ---------- 服务 ----------
 server:
   host: 127.0.0.1

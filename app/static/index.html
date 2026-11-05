@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>自习室座位占用监测</title>
+<style>
+    :root {
+        --bg-page: #f6f7f9;
+        --bg-card: #ffffff;
+        --text-main: #1f2328;
+        --text-sub: #5f6570;
+        --text-hint: #8b919b;
+        --border: #e3e5e9;
+
+        --green: #1d9e75;
+        --green-bg: #e1f5ee;
+        --amber: #ba7517;
+        --amber-bg: #faeeda;
+        --gray: #7a7d83;
+        --gray-bg: #f1efe8;
+        --red: #c7392f;
+        --red-bg: #fcebeb;
+        --blue: #185fa5;
+        --blue-bg: #e6f1fb;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+        margin: 0;
+        padding: 24px 28px 40px;
+        background: var(--bg-page);
+        color: var(--text-main);
+        font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+        font-size: 14px;
+        line-height: 1.6;
+    }
+
+    header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 24px;
+        margin-bottom: 20px;
+    }
+
+    h1 {
+        margin: 0 0 4px;
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+    }
+
+    .subtitle {
+        color: var(--text-sub);
+        font-size: 13px;
+    }
+
+    .header-right {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-shrink: 0;
+    }
+
+    .stamp {
+        text-align: right;
+        color: var(--text-sub);
+        font-size: 12px;
+        line-height: 1.5;
+    }
+
+    .stamp strong { color: var(--text-main); font-weight: 600; }
+
+    button {
+        border: 1px solid var(--border);
+        background: var(--bg-card);
+        color: var(--text-main);
+        padding: 8px 16px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-family: inherit;
+        cursor: pointer;
+        transition: border-color 0.15s, background 0.15s;
+    }
+
+    button:hover { border-color: #c4c8ce; background: #fafbfc; }
+    button:disabled { opacity: 0.55; cursor: default; }
+
+    button.primary {
+        background: var(--blue);
+        border-color: var(--blue);
+        color: #fff;
+    }
+
+    button.primary:hover { background: #134e8a; border-color: #134e8a; }
+
+    .stats {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 14px;
+        margin-bottom: 18px;
+    }
+
+    .stat {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 14px 16px;
+    }
+
+    .stat .label {
+        font-size: 12px;
+        color: var(--text-sub);
+        margin-bottom: 6px;
+    }
+
+    .stat .value {
+        font-size: 26px;
+        font-weight: 600;
+        line-height: 1.1;
+    }
+
+    .stat .value span {
+        font-size: 13px;
+        font-weight: 400;
+        color: var(--text-hint);
+        margin-left: 4px;
+    }
+
+    .stat.occupied .value { color: var(--green); }
+    .stat.object .value { color: var(--amber); }
+    .stat.violation .value { color: var(--red); }
+    .stat.empty .value { color: var(--gray); }
+
+    .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+        gap: 16px;
+        margin-bottom: 16px;
+    }
+
+    .panel {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 16px 18px 18px;
+    }
+
+    .panel h2 {
+        margin: 0 0 12px;
+        font-size: 14px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .panel h2 .hint {
+        font-weight: 400;
+        font-size: 12px;
+        color: var(--text-hint);
+    }
+
+    .legend {
+        display: flex;
+        gap: 14px;
+        font-size: 12px;
+        color: var(--text-sub);
+        margin-bottom: 14px;
+        flex-wrap: wrap;
+    }
+
+    .legend i {
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        border-radius: 2px;
+        margin-right: 5px;
+        vertical-align: middle;
+    }
+
+    .seat-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+        gap: 10px;
+    }
+
+    .seat {
+        border-radius: 8px;
+        padding: 10px 12px;
+        border: 1px solid transparent;
+        position: relative;
+        min-height: 78px;
+    }
+
+    .seat .id {
+        font-size: 14px;
+        font-weight: 600;
+        margin-bottom: 2px;
+    }
+
+    .seat .state {
+        font-size: 12px;
+        margin-bottom: 4px;
+    }
+
+    .seat .meta {
+        font-size: 11px;
+        color: var(--text-sub);
+        line-height: 1.45;
+    }
+
+    .seat.occupied { background: var(--green-bg); border-color: #b8e3d3; }
+    .seat.occupied .state { color: var(--green); }
+    .seat.object { background: var(--amber-bg); border-color: #efd9ab; }
+    .seat.object .state { color: var(--amber); }
+    .seat.empty { background: var(--gray-bg); border-color: #e0ded4; }
+    .seat.empty .state { color: var(--gray); }
+    .seat.violation {
+        background: var(--red-bg);
+        border-color: #f0b9b4;
+        box-shadow: 0 0 0 1px #f0b9b4 inset;
+    }
+    .seat.violation .state { color: var(--red); font-weight: 600; }
+
+    .badge {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        font-size: 10px;
+        padding: 1px 6px;
+        border-radius: 999px;
+        background: var(--red);
+        color: #fff;
+        letter-spacing: 0.3px;
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+        .seat.violation { animation: pulse 2.2s ease-in-out infinite; }
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 0 1px #f0b9b4 inset; }
+            50% { box-shadow: 0 0 0 2px #e24b4a inset; }
+        }
+    }
+
+    .frame-wrap {
+        border-radius: 8px;
+        overflow: hidden;
+        background: #eef0f3;
+        border: 1px solid var(--border);
+    }
+
+    .frame-wrap img {
+        display: block;
+        width: 100%;
+        height: auto;
+    }
+
+    .frame-note {
+        margin-top: 10px;
+        font-size: 12px;
+        color: var(--text-hint);
+        line-height: 1.6;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+    }
+
+    th, td {
+        text-align: left;
+        padding: 9px 10px;
+        border-bottom: 1px solid var(--border);
+    }
+
+    th {
+        font-weight: 500;
+        font-size: 12px;
+        color: var(--text-sub);
+        background: #fafbfc;
+    }
+
+    tbody tr:last-child td { border-bottom: none; }
+
+    .tag {
+        display: inline-block;
+        font-size: 11px;
+        padding: 1px 7px;
+        border-radius: 999px;
+    }
+
+    .tag.ongoing { background: var(--red-bg); color: var(--red); }
+    .tag.resolved { background: var(--green-bg); color: var(--green); }
+    .tag.cleared { background: var(--blue-bg); color: var(--blue); }
+    .tag.interrupted { background: var(--gray-bg); color: var(--gray); }
+
+    .empty-row {
+        color: var(--text-hint);
+        font-size: 13px;
+        padding: 18px 4px;
+    }
+
+    footer {
+        margin-top: 18px;
+        font-size: 12px;
+        color: var(--text-hint);
+        line-height: 1.7;
+    }
+
+    @media (max-width: 960px) {
+        .layout { grid-template-columns: minmax(0, 1fr); }
+        .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+</style>
+</head>
+<body>
+
+<header>
+    <div>
+        <h1>自习室座位占用监测</h1>
+        <div class="subtitle">
+            三态识别（有人 / 有物无人 / 空置）· 离座满 <span id="threshold">30</span> 分钟判定为占座 · 午休 12:00–13:30 不计时
+        </div>
+    </div>
+    <div class="header-right">
+        <div class="stamp">
+            数据更新：<strong id="updated">—</strong><br>
+            自动刷新：<strong id="auto-state">开启</strong>
+        </div>
+        <button id="btn-auto">暂停刷新</button>
+        <button id="btn-detect" class="primary">立即检测</button>
+    </div>
+</header>
+
+<section class="stats">
+    <div class="stat occupied">
+        <div class="label">有人</div>
+        <div class="value"><span id="count-occupied">0</span> 座</div>
+    </div>
+    <div class="stat object">
+        <div class="label">有物无人</div>
+        <div class="value"><span id="count-object">0</span> 座</div>
+    </div>
+    <div class="stat violation">
+        <div class="label">占座中</div>
+        <div class="value"><span id="count-violation">0</span> 座</div>
+    </div>
+    <div class="stat empty">
+        <div class="label">空置</div>
+        <div class="value"><span id="count-empty">0</span> 座</div>
+    </div>
+</section>
+
+<section class="layout">
+    <div class="panel">
+        <h2>座位状态分布 <span class="hint" id="seat-total">共 0 座</span></h2>
+        <div class="legend">
+            <span><i style="background:#1d9e75"></i>有人</span>
+            <span><i style="background:#ef9f27"></i>有物无人</span>
+            <span><i style="background:#e24b4a"></i>占座中（满 30 分钟）</span>
+            <span><i style="background:#b4b2a9"></i>空置</span>
+        </div>
+        <div class="seat-grid" id="seat-grid"></div>
+    </div>
+
+    <div class="panel">
+        <h2>检测画面 <span class="hint">红框=人　灰框=物品</span></h2>
+        <div class="frame-wrap">
+            <img id="frame" src="/api/frame" alt="检测标注画面">
+        </div>
+        <div class="frame-note" id="frame-note">
+            点击「立即检测」运行一次识别；图像来自配置中的演示底图。
+        </div>
+    </div>
+</section>
+
+<section class="panel">
+    <h2>占座事件记录 <span class="hint" id="event-count">最近 20 条</span></h2>
+    <table>
+        <thead>
+        <tr>
+            <th style="width:80px">座位</th>
+            <th style="width:150px">开始时间</th>
+            <th style="width:150px">结束时间</th>
+            <th style="width:100px">持续时长</th>
+            <th style="width:90px">阈值</th>
+            <th>结局</th>
+        </tr>
+        </thead>
+        <tbody id="event-body">
+        <tr><td colspan="6" class="empty-row">暂无占座事件。运行 <code>python scripts/track_stream.py</code> 或点击「立即检测」积累数据。</td></tr>
+        </tbody>
+    </table>
+</section>
+
+<footer>
+    数据来源：YOLOv8 检测 + 座位 ROI 判定 + 时序状态机（连续 3 帧防抖）· 数据库 data/seat.db ·
+    占座事件结局：ONGOING 仍在占座 / RESOLVED 人回来 / CLEARED 物品被清走
+</footer>
+
+<script>
+    const STATE_CLASS = {
+        "OCCUPIED": "occupied",
+        "OBJECT_ONLY": "object",
+        "EMPTY": "empty"
+    };
+
+    const OUTCOME_LABEL = {
+        "ONGOING": ["仍在占座", "ongoing"],
+        "RESOLVED": ["人已回来", "resolved"],
+        "CLEARED": ["物品清走", "cleared"],
+        "INTERRUPTED": ["程序中断", "interrupted"]
+    };
+
+    let autoRefresh = true;
+    let timer = null;
+
+    function formatTime(iso) {
+        if (!iso) { return "—"; }
+        const text = iso.replace("T", " ");
+        return text.slice(0, 16);
+    }
+
+    function renderSeats(payload) {
+        const grid = document.getElementById("seat-grid");
+        const seats = (payload.seats || []).slice();
+
+        // 按 ROI 位置的纵向、横向中心排序，使看板布局接近真实座位排布
+        seats.sort((a, b) => {
+            const ay = (a.roi[1] + a.roi[3]) / 2;
+            const by = (b.roi[1] + b.roi[3]) / 2;
+            if (Math.abs(ay - by) > 40) { return ay - by; }
+            return (a.roi[0] + a.roi[2]) / 2 - (b.roi[0] + b.roi[2]) / 2;
+        });
+
+        grid.innerHTML = seats.map((seat) => {
+            const cssClass = seat.violation ? "violation" : (STATE_CLASS[seat.state] || "empty");
+            const badge = seat.violation ? '<span class="badge">占座</span>' : "";
+            let meta = "";
+            if (seat.state === "OCCUPIED") {
+                meta = "检测到 " + seat.person_count + " 人";
+            } else if (seat.state === "OBJECT_ONLY") {
+                meta = "离座 " + seat.leave_minutes.toFixed(0) + " 分钟 / 阈值 " + payload.threshold_minutes;
+            } else {
+                meta = "无检测目标";
+            }
+            return `
+                <div class="seat ${cssClass}">
+                    ${badge}
+                    <div class="id">${seat.id}</div>
+                    <div class="state">${seat.state_cn}</div>
+                    <div class="meta">${meta}</div>
+                </div>`;
+        }).join("");
+
+        document.getElementById("seat-total").textContent = "共 " + seats.length + " 座";
+        document.getElementById("count-occupied").textContent = payload.counts.OCCUPIED || 0;
+        document.getElementById("count-object").textContent = payload.counts.OBJECT_ONLY || 0;
+        document.getElementById("count-violation").textContent = payload.counts.VIOLATION || 0;
+        document.getElementById("count-empty").textContent = payload.counts.EMPTY || 0;
+        document.getElementById("threshold").textContent = payload.threshold_minutes;
+        document.getElementById("updated").textContent = payload.updated_at ? formatTime(payload.updated_at) : "尚无数据";
+    }
+
+    function renderEvents(data) {
+        const body = document.getElementById("event-body");
+        const events = data.events || [];
+
+        document.getElementById("event-count").textContent = "最近 " + events.length + " 条";
+
+        if (events.length === 0) {
+            body.innerHTML = '<tr><td colspan="6" class="empty-row">暂无占座事件。运行 <code>python scripts/track_stream.py</code> 或点击「立即检测」积累数据。</td></tr>';
+            return;
+        }
+
+        body.innerHTML = events.map((event) => {
+            const outcome = OUTCOME_LABEL[event.outcome] || [event.outcome, "interrupted"];
+            const end = event.end_ts ? formatTime(event.end_ts) : "进行中";
+            return `
+                <tr>
+                    <td>${event.seat_id}</td>
+                    <td>${formatTime(event.start_ts)}</td>
+                    <td>${end}</td>
+                    <td>${event.duration_minutes.toFixed(0)} 分钟</td>
+                    <td>${event.threshold_minutes.toFixed(0)} 分钟</td>
+                    <td><span class="tag ${outcome[1]}">${outcome[0]}</span></td>
+                </tr>`;
+        }).join("");
+    }
+
+    async function refresh() {
+        try {
+            const [seatsResponse, eventsResponse] = await Promise.all([
+                fetch("/api/seats"),
+                fetch("/api/events?limit=20")
+            ]);
+
+            renderSeats(await seatsResponse.json());
+            renderEvents(await eventsResponse.json());
+        } catch (error) {
+            document.getElementById("updated").textContent = "连接失败";
+        }
+    }
+
+    async function detect() {
+        const button = document.getElementById("btn-detect");
+        button.disabled = true;
+        button.textContent = "识别中…";
+
+        try {
+            const response = await fetch("/api/detect", { method: "POST" });
+            const payload = await response.json();
+
+            if (!response.ok) {
+                document.getElementById("frame-note").textContent = "检测失败：" + (payload.error || "未知错误");
+                return;
+            }
+
+            renderSeats(payload);
+            document.getElementById("frame").src = "/api/frame?t=" + Date.now();
+            document.getElementById("frame-note").textContent =
+                "本次检测到 " + payload.detections + " 个目标，底图：" + payload.source;
+            await refresh();
+        } catch (error) {
+            document.getElementById("frame-note").textContent = "检测请求失败：" + error;
+        } finally {
+            button.disabled = false;
+            button.textContent = "立即检测";
+        }
+    }
+
+    function setAutoRefresh(enable) {
+        autoRefresh = enable;
+        document.getElementById("auto-state").textContent = enable ? "开启（5 秒）" : "已暂停";
+        document.getElementById("btn-auto").textContent = enable ? "暂停刷新" : "开启刷新";
+
+        if (timer) { clearInterval(timer); timer = null; }
+        if (enable) { timer = setInterval(refresh, 5000); }
+    }
+
+    document.getElementById("btn-auto").addEventListener("click", () => setAutoRefresh(!autoRefresh));
+    document.getElementById("btn-detect").addEventListener("click", detect);
+
+    refresh();
+    setAutoRefresh(true);
+</script>
+</body>
+</html>

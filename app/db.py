@@ -183,6 +183,36 @@ def fetch_events(connection: sqlite3.Connection, limit: int = 50, seat_id: Optio
     return cursor.fetchall()
 
 
+def fetch_latest_snapshots(connection: sqlite3.Connection) -> List[sqlite3.Row]:
+    """取每个座位最新一条观测记录，作为看板当前状态的来源。"""
+    cursor = connection.execute(
+        """
+        SELECT o.*
+          FROM observations o
+          JOIN (
+                SELECT seat_id, MAX(ts) AS latest_ts
+                  FROM observations
+                 GROUP BY seat_id
+               ) latest
+            ON o.seat_id = latest.seat_id AND o.ts = latest.latest_ts
+         ORDER BY o.seat_id
+        """
+    )
+    return cursor.fetchall()
+
+
+def fetch_ongoing_violations(connection: sqlite3.Connection) -> List[sqlite3.Row]:
+    """取仍在持续中的占座事件（结局为 ONGOING），用于看板高亮与倒计时。"""
+    cursor = connection.execute(
+        """
+        SELECT * FROM occupancy_events
+         WHERE outcome = 'ONGOING'
+         ORDER BY start_ts DESC
+        """
+    )
+    return cursor.fetchall()
+
+
 def summarize_day(connection: sqlite3.Connection, day_prefix: str) -> List[sqlite3.Row]:
     """按座位统计某天（YYYY-MM-DD）的观测帧与占座次数，用于看板趋势图。"""
     cursor = connection.execute(
