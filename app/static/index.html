@@ -311,6 +311,157 @@
         line-height: 1.7;
     }
 
+    /* ---------- 识别来源：上传面板 ---------- */
+    .hidden { display: none !important; }
+
+    .tabs {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 14px;
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 0;
+    }
+
+    .tab {
+        border: none;
+        border-bottom: 2px solid transparent;
+        border-radius: 0;
+        background: transparent;
+        padding: 8px 14px;
+        margin-bottom: -1px;
+        color: var(--text-sub);
+        font-size: 13px;
+    }
+
+    .tab:hover { background: transparent; color: var(--text-main); }
+
+    .tab.active {
+        color: var(--blue);
+        border-bottom-color: var(--blue);
+        font-weight: 600;
+    }
+
+    .dropzone {
+        display: block;
+        border: 1.5px dashed #cfd3d9;
+        border-radius: 10px;
+        padding: 22px 18px;
+        text-align: center;
+        cursor: pointer;
+        background: #fbfcfd;
+        transition: border-color 0.15s, background 0.15s;
+    }
+
+    .dropzone:hover, .dropzone.dragover {
+        border-color: var(--blue);
+        background: var(--blue-bg);
+    }
+
+    .dropzone .dz-main {
+        font-size: 14px;
+        color: var(--text-main);
+        margin-bottom: 4px;
+    }
+
+    .dropzone .dz-sub {
+        font-size: 12px;
+        color: var(--text-hint);
+    }
+
+    .dropzone.picked { border-style: solid; border-color: #b8d4ee; background: var(--blue-bg); }
+
+    .row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: 12px;
+        margin-top: 14px;
+    }
+
+    .field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 12px;
+        color: var(--text-sub);
+    }
+
+    select {
+        font-family: inherit;
+        font-size: 13px;
+        padding: 7px 10px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg-card);
+        color: var(--text-main);
+        max-width: 320px;
+    }
+
+    .status {
+        font-size: 12px;
+        color: var(--text-sub);
+        align-self: center;
+        line-height: 1.5;
+    }
+
+    .status.error { color: var(--red); }
+    .status.ok { color: var(--green); }
+
+    .progress { margin-top: 14px; }
+
+    .progress-track {
+        height: 8px;
+        border-radius: 999px;
+        background: #eceef1;
+        overflow: hidden;
+    }
+
+    .progress-bar {
+        height: 100%;
+        width: 0%;
+        background: var(--blue);
+        border-radius: 999px;
+        transition: width 0.3s ease;
+    }
+
+    .progress-text {
+        margin-top: 8px;
+        font-size: 12px;
+        color: var(--text-sub);
+        line-height: 1.6;
+    }
+
+    .timeline {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        max-height: 260px;
+        overflow-y: auto;
+    }
+
+    .timeline .item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 12.5px;
+        padding: 7px 10px;
+        border-radius: 7px;
+        background: #fafbfc;
+        border: 1px solid var(--border);
+    }
+
+    .timeline .clock {
+        font-family: Consolas, "Courier New", monospace;
+        color: var(--text-hint);
+        font-size: 12px;
+        flex-shrink: 0;
+    }
+
+    .timeline .seat-id {
+        font-weight: 600;
+        flex-shrink: 0;
+    }
+
     @media (max-width: 960px) {
         .layout { grid-template-columns: minmax(0, 1fr); }
         .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -355,6 +506,59 @@
     </div>
 </section>
 
+<section class="panel" style="margin-bottom:16px">
+    <h2>识别来源 <span class="hint" id="mode-hint">当前：团队数据库 / 演示底图</span></h2>
+
+    <div class="tabs">
+        <button class="tab active" data-mode="image">上传图片识别</button>
+        <button class="tab" data-mode="video">上传视频实时识别</button>
+        <button class="tab" data-mode="live">实时看板</button>
+    </div>
+
+    <div class="tab-pane" id="pane-image">
+        <label class="dropzone" id="drop-image">
+            <input type="file" id="file-image" accept="image/jpeg,image/png,image/webp,image/bmp" hidden>
+            <div class="dz-main">点击选择图片，或把图片拖到这里</div>
+            <div class="dz-sub">支持 JPG / PNG / WebP / BMP，单张不超过 25 MB</div>
+        </label>
+        <div class="row">
+            <button id="btn-run-image" class="primary" disabled>开始识别</button>
+            <span class="status" id="status-image">选择一张本机位拍摄的图片后开始</span>
+        </div>
+    </div>
+
+    <div class="tab-pane hidden" id="pane-video">
+        <label class="dropzone" id="drop-video">
+            <input type="file" id="file-video" accept="video/mp4,video/x-msvideo,video/quicktime,video/x-matroska,video/webm" hidden>
+            <div class="dz-main">点击选择视频，或把视频拖到这里</div>
+            <div class="dz-sub">支持 MP4 / AVI / MOV / MKV / WebM，单个不超过 300 MB</div>
+        </label>
+        <div class="row">
+            <label class="field">时间倍率
+                <select id="video-scale">
+                    <option value="60" selected>60 倍（1 秒 = 1 分钟，便于演示 30 分钟阈值）</option>
+                    <option value="120">120 倍（更快触发占座）</option>
+                    <option value="10">10 倍</option>
+                    <option value="1">1 倍（按视频真实时长计时）</option>
+                </select>
+            </label>
+            <label class="field">采样间隔
+                <select id="video-sample">
+                    <option value="1" selected>每 1 秒 1 帧（推荐）</option>
+                    <option value="0.5">每 0.5 秒 1 帧（更细，速度减半）</option>
+                    <option value="2">每 2 秒 1 帧（更快）</option>
+                </select>
+            </label>
+            <button id="btn-run-video" class="primary" disabled>开始处理</button>
+            <button id="btn-cancel-video" disabled>取消</button>
+        </div>
+        <div class="progress hidden" id="video-progress">
+            <div class="progress-track"><div class="progress-bar" id="video-bar"></div></div>
+            <div class="progress-text" id="video-progress-text">等待开始</div>
+        </div>
+    </div>
+</section>
+
 <section class="layout">
     <div class="panel">
         <h2>座位状态分布 <span class="hint" id="seat-total">共 0 座</span></h2>
@@ -375,6 +579,13 @@
         <div class="frame-note" id="frame-note">
             点击「立即检测」运行一次识别；图像来自配置中的演示底图。
         </div>
+    </div>
+</section>
+
+<section class="panel hidden" id="panel-timeline" style="margin-bottom:16px">
+    <h2>状态变化时间线 <span class="hint" id="timeline-count">等待视频识别</span></h2>
+    <div class="timeline" id="timeline-list">
+        <div class="empty-row">还没有状态切换记录。上传视频后，每次座位状态变化都会记录在这里。</div>
     </div>
 </section>
 
@@ -419,15 +630,30 @@
     let autoRefresh = true;
     let timer = null;
 
+    // 三种数据来源：image=上传图片 / video=上传视频 / live=数据库实时看板
+    let mode = "image";
+    let imageFile = null;
+    let videoFile = null;
+    let jobId = null;
+    let jobTimer = null;
+
     function formatTime(iso) {
         if (!iso) { return "—"; }
-        const text = iso.replace("T", " ");
+        const text = String(iso).replace("T", " ");
         return text.slice(0, 16);
+    }
+
+    function formatDuration(seconds) {
+        const total = Math.max(0, Math.round(seconds || 0));
+        const minutes = Math.floor(total / 60);
+        const rest = total % 60;
+        return String(minutes).padStart(2, "0") + ":" + String(rest).padStart(2, "0");
     }
 
     function renderSeats(payload) {
         const grid = document.getElementById("seat-grid");
         const seats = (payload.seats || []).slice();
+        const counts = payload.counts || {};
 
         // 按 ROI 位置的纵向、横向中心排序，使看板布局接近真实座位排布
         seats.sort((a, b) => {
@@ -444,7 +670,7 @@
             if (seat.state === "OCCUPIED") {
                 meta = "检测到 " + seat.person_count + " 人";
             } else if (seat.state === "OBJECT_ONLY") {
-                meta = "离座 " + seat.leave_minutes.toFixed(0) + " 分钟 / 阈值 " + payload.threshold_minutes;
+                meta = "离座 " + (seat.leave_minutes || 0).toFixed(0) + " 分钟 / 阈值 " + payload.threshold_minutes;
             } else {
                 meta = "无检测目标";
             }
@@ -458,11 +684,13 @@
         }).join("");
 
         document.getElementById("seat-total").textContent = "共 " + seats.length + " 座";
-        document.getElementById("count-occupied").textContent = payload.counts.OCCUPIED || 0;
-        document.getElementById("count-object").textContent = payload.counts.OBJECT_ONLY || 0;
-        document.getElementById("count-violation").textContent = payload.counts.VIOLATION || 0;
-        document.getElementById("count-empty").textContent = payload.counts.EMPTY || 0;
-        document.getElementById("threshold").textContent = payload.threshold_minutes;
+        document.getElementById("count-occupied").textContent = counts.OCCUPIED || 0;
+        document.getElementById("count-object").textContent = counts.OBJECT_ONLY || 0;
+        document.getElementById("count-violation").textContent = counts.VIOLATION || 0;
+        document.getElementById("count-empty").textContent = counts.EMPTY || 0;
+        if (payload.threshold_minutes) {
+            document.getElementById("threshold").textContent = payload.threshold_minutes;
+        }
         document.getElementById("updated").textContent = payload.updated_at ? formatTime(payload.updated_at) : "尚无数据";
     }
 
@@ -492,7 +720,56 @@
         }).join("");
     }
 
+    function renderVideoEvents(events) {
+        const body = document.getElementById("event-body");
+        document.getElementById("event-count").textContent = "本次视频 " + events.length + " 条";
+
+        if (events.length === 0) {
+            body.innerHTML = '<tr><td colspan="6" class="empty-row">本次视频未产生占座事件：没有出现「有物无人」持续满阈值的座位。可把时间倍率调大再试。</td></tr>';
+            return;
+        }
+
+        body.innerHTML = events.map((event) => {
+            const outcome = OUTCOME_LABEL[event.outcome] || [event.outcome, "interrupted"];
+            const end = event.end || "进行中";
+            return `
+                <tr>
+                    <td>${event.seat_id}</td>
+                    <td>${event.start}</td>
+                    <td>${end}</td>
+                    <td>${(event.duration_minutes || 0).toFixed(0)} 分钟</td>
+                    <td>${(event.threshold_minutes || 0).toFixed(0)} 分钟</td>
+                    <td><span class="tag ${outcome[1]}">${outcome[0]}</span></td>
+                </tr>`;
+        }).join("");
+    }
+
+    function renderTimeline(items) {
+        const list = document.getElementById("timeline-list");
+        const panel = document.getElementById("panel-timeline");
+        if (panel.classList.contains("hidden")) { panel.classList.remove("hidden"); }
+
+        document.getElementById("timeline-count").textContent = items.length
+            ? "共 " + items.length + " 条切换"
+            : "暂无状态切换";
+
+        if (!items.length) {
+            list.innerHTML = '<div class="empty-row">还没有状态切换记录。座位状态需连续 3 帧一致才会确认，短片段可能没有切换。</div>';
+            return;
+        }
+
+        list.innerHTML = items.slice(-30).reverse().map((item) => `
+            <div class="item">
+                <span class="clock">${item.clock}</span>
+                <span class="seat-id">${item.seat_id}</span>
+                <span>${item.from_cn} → ${item.to_cn}</span>
+                <span style="margin-left:auto;color:#8b919b;font-size:11px">视频 ${Math.round(item.video_seconds)}s</span>
+            </div>`).join("");
+    }
+
     async function refresh() {
+        if (mode !== "live") { return; }
+
         try {
             const [seatsResponse, eventsResponse] = await Promise.all([
                 fetch("/api/seats"),
@@ -542,11 +819,308 @@
         if (enable) { timer = setInterval(refresh, 5000); }
     }
 
+    // ---------- 模式切换 ----------
+
+    function setMode(next) {
+        mode = next;
+
+        document.querySelectorAll(".tab").forEach((tab) => {
+            tab.classList.toggle("active", tab.dataset.mode === next);
+        });
+        document.getElementById("pane-image").classList.toggle("hidden", next !== "image");
+        document.getElementById("pane-video").classList.toggle("hidden", next !== "video");
+
+        const hint = document.getElementById("mode-hint");
+
+        if (next === "live") {
+            hint.textContent = "当前：团队数据库 / 演示底图";
+            document.getElementById("panel-timeline").classList.add("hidden");
+            document.getElementById("frame").src = "/api/frame?t=" + Date.now();
+            document.getElementById("frame-note").textContent = "数据来自持续采集写入的数据库；「立即检测」用演示底图跑一次识别。";
+            setAutoRefresh(true);
+            refresh();
+            return;
+        }
+
+        stopPolling();
+        setAutoRefresh(false);
+
+        if (next === "image") {
+            hint.textContent = "当前：上传图片（单帧识别，不写库）";
+        } else {
+            hint.textContent = "当前：上传视频（逐帧识别，不写库）";
+        }
+    }
+
+    // ---------- 文件选择 ----------
+
+    function setStatus(kind, text, tone) {
+        const element = document.getElementById("status-" + kind);
+        if (!element) { return; }
+        element.textContent = text;
+        element.className = "status" + (tone ? " " + tone : "");
+    }
+
+    function pickFile(kind, file) {
+        const zone = document.getElementById("drop-" + kind);
+        const main = zone.querySelector(".dz-main");
+        const sub = zone.querySelector(".dz-sub");
+        const sizeMb = (file.size / 1024 / 1024).toFixed(2);
+
+        zone.classList.add("picked");
+        main.textContent = "已选择：" + file.name;
+        sub.textContent = sizeMb + " MB · 点击可重新选择";
+
+        if (kind === "image") {
+            imageFile = file;
+            document.getElementById("btn-run-image").disabled = false;
+            setStatus("image", "就绪，点「开始识别」运行检测", "");
+        } else {
+            videoFile = file;
+            document.getElementById("btn-run-video").disabled = false;
+            setStatus("video", "就绪，点「开始处理」逐帧识别", "");
+        }
+    }
+
+    function bindDropzone(kind) {
+        const zone = document.getElementById("drop-" + kind);
+        const input = document.getElementById("file-" + kind);
+
+        zone.addEventListener("click", (event) => {
+            event.preventDefault();
+            input.click();
+        });
+        input.addEventListener("change", () => {
+            if (input.files && input.files[0]) { pickFile(kind, input.files[0]); }
+        });
+
+        ["dragenter", "dragover"].forEach((name) => {
+            zone.addEventListener(name, (event) => {
+                event.preventDefault();
+                zone.classList.add("dragover");
+            });
+        });
+        ["dragleave", "drop"].forEach((name) => {
+            zone.addEventListener(name, (event) => {
+                event.preventDefault();
+                zone.classList.remove("dragover");
+            });
+        });
+        zone.addEventListener("drop", (event) => {
+            const file = event.dataTransfer.files && event.dataTransfer.files[0];
+            if (file) { pickFile(kind, file); }
+        });
+    }
+
+    // ---------- 上传图片 ----------
+
+    async function runImage() {
+        if (!imageFile) { return; }
+
+        const button = document.getElementById("btn-run-image");
+        button.disabled = true;
+        button.textContent = "识别中…";
+        setStatus("image", "正在上传并检测，请稍候…", "");
+
+        const form = new FormData();
+        form.append("file", imageFile);
+
+        try {
+            const response = await fetch("/api/analyze/image", { method: "POST", body: form });
+            const data = await response.json();
+
+            if (!response.ok) {
+                setStatus("image", data.error || "识别失败", "error");
+                return;
+            }
+
+            renderSeats(data);
+            document.getElementById("frame").src = data.annotated || "/api/frame?t=" + Date.now();
+            document.getElementById("frame-note").textContent =
+                "上传图片 " + data.source + "（" + data.image_size[0] + "×" + data.image_size[1] + "）· " +
+                "检出 " + data.detections + " 个目标 · 耗时 " + data.elapsed_ms + " ms";
+
+            const counts = data.counts || {};
+            setStatus(
+                "image",
+                "识别完成：有人 " + (counts.OCCUPIED || 0) + " · 有物无人 " + (counts.OBJECT_ONLY || 0) +
+                " · 空置 " + (counts.EMPTY || 0) + "，耗时 " + data.elapsed_ms + " ms",
+                "ok"
+            );
+            document.getElementById("updated").textContent = "单图识别";
+        } catch (error) {
+            setStatus("image", "请求失败：" + error, "error");
+        } finally {
+            button.disabled = false;
+            button.textContent = "开始识别";
+        }
+    }
+
+    // ---------- 上传视频 ----------
+
+    function setBar(percent) {
+        document.getElementById("video-bar").style.width = Math.min(100, Math.max(0, percent)) + "%";
+    }
+
+    function setProgressText(text) {
+        document.getElementById("video-progress-text").textContent = text;
+    }
+
+    async function runVideo() {
+        if (!videoFile) { return; }
+
+        const button = document.getElementById("btn-run-video");
+        button.disabled = true;
+        button.textContent = "上传中…";
+        document.getElementById("video-progress").classList.remove("hidden");
+        document.getElementById("panel-timeline").classList.remove("hidden");
+        setBar(0);
+        setProgressText("正在上传视频（" + (videoFile.size / 1024 / 1024).toFixed(1) + " MB）…");
+
+        const form = new FormData();
+        form.append("file", videoFile);
+        form.append("time_scale", document.getElementById("video-scale").value);
+        form.append("sample_interval", document.getElementById("video-sample").value);
+
+        try {
+            const response = await fetch("/api/analyze/video", { method: "POST", body: form });
+            const data = await response.json();
+
+            if (!response.ok) {
+                setProgressText("上传失败：" + (data.error || "未知错误"));
+                setStatus("video", data.error || "上传失败", "error");
+                return;
+            }
+
+            jobId = data.job_id;
+            document.getElementById("btn-cancel-video").disabled = false;
+            setProgressText("已接收，正在逐帧识别…（时间倍率 " + data.time_scale + " 倍）");
+            startPolling();
+        } catch (error) {
+            setProgressText("上传请求失败：" + error);
+        } finally {
+            button.disabled = false;
+            button.textContent = "开始处理";
+        }
+    }
+
+    function applyJob(data) {
+        renderSeats(Object.assign({}, data, { updated_at: "视频 " + formatDuration(data.video_seconds) }));
+
+        if (data.frame_seq > 0) {
+            document.getElementById("frame").src = "/api/jobs/" + data.job_id + "/frame?seq=" + data.frame_seq;
+            document.getElementById("frame-note").textContent =
+                "视频 " + data.filename + " · 当前帧 " + formatDuration(data.video_seconds) + " · 检出 " +
+                data.detections + " 个目标 · 状态换算已过 " + Math.round(data.simulated_seconds / 60) + " 分钟";
+        }
+
+        setBar(data.progress * 100);
+        setProgressText(
+            (data.status === "running" ? "处理中" : data.status === "done" ? "已完成" : data.status) +
+            " · 已处理 " + data.frames_done + " 帧（" + Math.round(data.progress * 100) + "%）" +
+            " · 视频 " + formatDuration(data.video_seconds) + " / " + formatDuration(data.video_duration) +
+            " · 状态机折算 " + Math.round(data.simulated_seconds / 60) + " 分钟" +
+            " · 检出 " + data.detections + " 个目标"
+        );
+
+        renderTimeline(data.timeline || []);
+        renderVideoEvents(data.events || []);
+    }
+
+    async function pollJob() {
+        if (!jobId) { return; }
+
+        try {
+            const response = await fetch("/api/jobs/" + jobId);
+            const data = await response.json();
+
+            if (!response.ok) {
+                setProgressText("查询失败：" + (data.error || "未知错误"));
+                stopPolling();
+                return;
+            }
+
+            applyJob(data);
+
+            if (data.status === "done" || data.status === "error" || data.status === "cancelled") {
+                stopPolling();
+                document.getElementById("btn-cancel-video").disabled = true;
+
+                if (data.status === "done") {
+                    setStatus(
+                        "video",
+                        "处理完成：共 " + data.frames_done + " 帧，产生 " + (data.events || []).length +
+                        " 起占座，耗时 " + data.elapsed_seconds.toFixed(1) + " 秒",
+                        "ok"
+                    );
+                } else {
+                    setStatus("video", data.message || "任务未完成", "error");
+                }
+                return;
+            }
+        } catch (error) {
+            setProgressText("连接中断：" + error);
+            stopPolling();
+            return;
+        }
+
+        jobTimer = setTimeout(pollJob, 800);
+    }
+
+    function startPolling() {
+        stopPolling();
+        pollJob();
+    }
+
+    function stopPolling() {
+        if (jobTimer) {
+            clearTimeout(jobTimer);
+            jobTimer = null;
+        }
+    }
+
+    async function cancelVideo() {
+        if (!jobId) { return; }
+        document.getElementById("btn-cancel-video").disabled = true;
+        setProgressText("正在取消…");
+        try {
+            await fetch("/api/jobs/" + jobId + "/cancel", { method: "POST" });
+        } catch (error) {
+            setProgressText("取消失败：" + error);
+        }
+    }
+
+    // ---------- 事件绑定 ----------
+
     document.getElementById("btn-auto").addEventListener("click", () => setAutoRefresh(!autoRefresh));
     document.getElementById("btn-detect").addEventListener("click", detect);
+    document.getElementById("btn-run-image").addEventListener("click", runImage);
+    document.getElementById("btn-run-video").addEventListener("click", runVideo);
+    document.getElementById("btn-cancel-video").addEventListener("click", cancelVideo);
 
-    refresh();
-    setAutoRefresh(true);
+    document.querySelectorAll(".tab").forEach((tab) => {
+        tab.addEventListener("click", () => setMode(tab.dataset.mode));
+    });
+
+    bindDropzone("image");
+    bindDropzone("video");
+
+    // 初始先拉一次库内数据把座位卡填上（只此一次，不开启自动刷新），
+    // 避免用户停留在上传模式时看到空看板
+    (async function initialLoad() {
+        try {
+            const [seatsResponse, eventsResponse] = await Promise.all([
+                fetch("/api/seats"),
+                fetch("/api/events?limit=20")
+            ]);
+            renderSeats(await seatsResponse.json());
+            renderEvents(await eventsResponse.json());
+        } catch (error) {
+            /* 服务未就绪时忽略，用户切到实时看板会再拉 */
+        }
+    })();
+
+    setMode("image");
 </script>
 </body>
 </html>

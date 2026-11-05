@@ -39,6 +39,9 @@ data/workspace/
 data/prelabel_preview/
 data/verify_preview/
 
+# 上传的视频（处理后即删，仅本地缓存）
+data/uploads/
+
 # ===== 日志与临时文件 =====
 logs/*
 !logs/.gitkeep

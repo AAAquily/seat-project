@@ -1,26 +1,35 @@
 """FastAPI 服务：提供座位状态接口与网页看板。
 
 接口一览：
-    GET  /               网页看板（app/static/index.html）
-    GET  /api/health     健康检查，返回模型与数据库就绪状态
-    GET  /api/seats      当前 12 座状态（取每个座位最新一条观测）
-    GET  /api/events     占座事件列表，默认最近 20 条
-    GET  /api/summary    当日统计（各状态帧数与占座次数）
-    POST /api/detect     用配置里的演示底图跑一次检测并落库，返回最新状态
-    GET  /api/frame      最近一次检测的标注图
+    GET  /                        网页看板（app/static/index.html）
+    GET  /api/health              健康检查，返回模型与数据库就绪状态
+    GET  /api/seats               当前 12 座状态（取每个座位最新一条观测）
+    GET  /api/events              占座事件列表，默认最近 20 条
+    GET  /api/summary             当日统计（各状态帧数与占座次数）
+    POST /api/detect              用配置里的演示底图跑一次检测并落库，返回最新状态
+    GET  /api/frame               最近一次检测的标注图
+    POST /api/analyze/image       上传图片 → 单帧识别，返回座位状态与标注图（不落库）
+    POST /api/analyze/video       上传视频 → 建后台任务，逐帧识别并可轮询进度
+    GET  /api/jobs/{job_id}       查询视频任务进度、实时座位状态、状态变化时间线
+    GET  /api/jobs/{job_id}/frame 取任务当前处理帧的标注图
+    POST /api/jobs/{job_id}/cancel 取消正在处理的视频任务
 
 启动：
     uvicorn app.main:app --host 127.0.0.1 --port 8000
 """
 
+import base64
 import os
 import sys
+import time
+import uuid
 from datetime import datetime
 
 import cv2
+import numpy as np
 import yaml
-from fastapi import FastAPI, Query
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, File, Form, Query, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 # 从任意工作目录启动都能导入项目内模块
@@ -32,11 +41,19 @@ if SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, SCRIPTS_DIR)
 
 from app import db  # noqa: E402
+from app import video_job  # noqa: E402
 from app.detector import detect_image  # noqa: E402
 from judge_seats import draw_result, judge_seats as judge_seat_states  # noqa: E402
 
 CONFIG_PATH = os.path.join(PROJECT_ROOT, "config", "config.yaml")
 STATIC_DIR = os.path.join(PROJECT_ROOT, "app", "static")
+UPLOAD_DIR = os.path.join(PROJECT_ROOT, "data", "uploads")
+
+# 上传约束：图片走内存直接解码，视频落盘后再处理，两者都设上限防止误传大文件
+MAX_IMAGE_BYTES = 25 * 1024 * 1024
+MAX_VIDEO_BYTES = 300 * 1024 * 1024
+ALLOWED_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+ALLOWED_VIDEO_EXT = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v"}
 
 STATE_LABELS_CN = {
     "OCCUPIED": "有人",
@@ -74,6 +91,45 @@ def build_counts(seats: list) -> dict:
         if seat["violation"]:
             counts["VIOLATION"] += 1
     return counts
+
+
+def build_uploaded_view(seat_results: list) -> dict:
+    """把单帧判定结果转成看板可直接渲染的结构（与 /api/seats 对齐）。"""
+    roi_by_seat = {seat["id"]: seat["roi"] for seat in CONFIG["seats"]}
+    name_by_seat = {seat["id"]: seat.get("name", seat["id"]) for seat in CONFIG["seats"]}
+
+    seats = []
+    for item in seat_results:
+        seats.append(
+            {
+                "id": item["id"],
+                "name": name_by_seat.get(item["id"], item["id"]),
+                "roi": roi_by_seat.get(item["id"], [0, 0, 0, 0]),
+                "state": item["state"],
+                "state_cn": item.get("state_cn", STATE_LABELS_CN.get(item["state"], item["state"])),
+                "person_count": item.get("person_count", 0),
+                "object_count": item.get("object_count", 0),
+                # 单张图片没有时间维度，离座时长固定为 0
+                "leave_minutes": 0.0,
+                "violation": False,
+                "violation_since": "",
+                "updated_at": datetime.now().isoformat(timespec="seconds"),
+            }
+        )
+
+    return {
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+        "server_time": datetime.now().isoformat(timespec="seconds"),
+        "counts": build_counts(seats),
+        "threshold_minutes": CONFIG["occupancy"]["object_leave_minutes"],
+        "seats": seats,
+    }
+
+
+def encode_jpeg(frame: np.ndarray, quality: int = 85) -> tuple:
+    """把图像编码成 JPEG 字节，返回 (是否成功, 字节)。"""
+    ok, buffer = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
+    return ok, buffer.tobytes() if ok else b""
 
 
 def load_current_seats() -> dict:
@@ -276,3 +332,163 @@ def api_frame():
         return FileResponse(fallback, media_type="image/jpeg")
 
     return JSONResponse(status_code=404, content={"error": "尚无可用图像"})
+
+
+@app.post("/api/analyze/image")
+async def analyze_image(file: UploadFile = File(...)):
+    """上传图片 → 单帧识别 → 返回 12 座状态 + 标注图（base64）。
+
+    这条路径只做「看一眼」，不写数据库：看板的历史数据应来自持续采集，
+    上传测试图若落库会把实时状态冲掉。
+    """
+    filename = file.filename or "upload"
+    extension = os.path.splitext(filename)[1].lower()
+    if extension not in ALLOWED_IMAGE_EXT:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"不支持的图片格式「{extension or '未知'}」，请上传 JPG / PNG / WebP / BMP"},
+        )
+
+    payload = await file.read()
+    if not payload:
+        return JSONResponse(status_code=400, content={"error": "上传内容为空"})
+    if len(payload) > MAX_IMAGE_BYTES:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"图片过大（{len(payload) / 1024 / 1024:.1f} MB），请压缩到 25 MB 以内"},
+        )
+
+    frame = cv2.imdecode(np.frombuffer(payload, np.uint8), cv2.IMREAD_COLOR)
+    if frame is None:
+        return JSONResponse(status_code=400, content={"error": "图片解码失败，文件可能已损坏"})
+
+    started_at = time.perf_counter()
+    detections, canvas = detect_image(
+        frame,
+        resolve_weights(),
+        CONFIG["model"]["conf"],
+        CONFIG["model"]["imgsz"],
+        CONFIG["model"]["device"],
+    )
+    seat_results = judge_seat_states(detections, CONFIG["seats"], CONFIG["occupancy"])
+    annotated = draw_result(canvas, CONFIG["seats"], seat_results, detections)
+    encoded_ok, jpeg = encode_jpeg(annotated, 85)
+    elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+
+    view = build_uploaded_view(seat_results)
+    view.update(
+        {
+            "mode": "image",
+            "source": filename,
+            "image_size": [int(frame.shape[1]), int(frame.shape[0])],
+            "detections": len(detections),
+            "elapsed_ms": elapsed_ms,
+            "annotated": (
+                "data:image/jpeg;base64," + base64.b64encode(jpeg).decode("ascii") if encoded_ok else ""
+            ),
+        }
+    )
+    return view
+
+
+@app.post("/api/analyze/video")
+async def analyze_video(
+    file: UploadFile = File(...),
+    time_scale: float = Form(60.0),
+    sample_interval: float = Form(1.0),
+):
+    """上传视频 → 建后台任务逐帧识别，返回 job_id 供前端轮询进度。
+
+    time_scale 是时间倍率：视频内 1 秒按几秒计入占座计时。
+    默认 60 表示 40 秒素材即可演示满 30 分钟的占座判定；设 1 则按视频真实时长。
+    """
+    filename = file.filename or "upload"
+    extension = os.path.splitext(filename)[1].lower()
+    if extension not in ALLOWED_VIDEO_EXT:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"不支持的视频格式「{extension or '未知'}」，请上传 MP4 / AVI / MOV / MKV / WebM"},
+        )
+
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    target_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}{extension}")
+
+    total_bytes = 0
+    try:
+        with open(target_path, "wb") as handle:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total_bytes += len(chunk)
+                if total_bytes > MAX_VIDEO_BYTES:
+                    handle.close()
+                    os.remove(target_path)
+                    return JSONResponse(
+                        status_code=400,
+                        content={"error": "视频超过 300 MB，请截取片段或压缩后再上传"},
+                    )
+                handle.write(chunk)
+    except Exception as error:  # noqa: BLE001
+        if os.path.isfile(target_path):
+            os.remove(target_path)
+        return JSONResponse(status_code=500, content={"error": f"保存上传文件失败：{error}"})
+
+    if total_bytes == 0:
+        os.remove(target_path)
+        return JSONResponse(status_code=400, content={"error": "上传内容为空"})
+
+    job = video_job.create_job(filename, target_path, time_scale, sample_interval)
+    video_job.start_job(job, CONFIG, resolve_weights())
+
+    return {
+        "job_id": job.job_id,
+        "filename": filename,
+        "size_mb": round(total_bytes / 1024 / 1024, 2),
+        "time_scale": job.time_scale,
+        "sample_interval": job.sample_interval,
+        "threshold_minutes": CONFIG["occupancy"]["object_leave_minutes"],
+    }
+
+
+@app.get("/api/jobs/{job_id}")
+def job_status(job_id: str):
+    """查询视频任务：进度、当前座位状态、状态变化时间线、占座事件。"""
+    job = video_job.get_job(job_id)
+    if job is None:
+        return JSONResponse(status_code=404, content={"error": "任务不存在或服务已重启"})
+
+    snapshot = job.snapshot()
+    snapshot["threshold_minutes"] = CONFIG["occupancy"]["object_leave_minutes"]
+    snapshot["mode"] = "video"
+    return snapshot
+
+
+@app.get("/api/jobs/{job_id}/frame")
+def job_frame(job_id: str):
+    """取任务当前帧的标注图；尚未处理出第一帧时返回 204。"""
+    job = video_job.get_job(job_id)
+    if job is None:
+        return JSONResponse(status_code=404, content={"error": "任务不存在或服务已重启"})
+
+    jpeg = job.current_frame()
+    if not jpeg:
+        return Response(status_code=204)
+
+    return Response(
+        content=jpeg,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+def job_cancel(job_id: str):
+    """取消正在处理的视频任务。"""
+    job = video_job.get_job(job_id)
+    if job is None:
+        return JSONResponse(status_code=404, content={"error": "任务不存在或服务已重启"})
+
+    job.cancel()
+    return {"job_id": job_id, "status": "cancelling"}
+
