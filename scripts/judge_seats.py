@@ -133,19 +133,29 @@ def judge_seats(detections: list, seats: list, occupancy: dict) -> list:
     detections: [{"class_id": int, "conf": float, "box": [x1,y1,x2,y2]}]
     返回: [{"id", "name", "state", "person_count", "object_count", "evidence": [...]}]
 
+    座位区域模型（与「座位定义规范」一致）：
+        roi         椅子区 —— person 框按它判定；
+        object_roi  可选，物品区（椅前桌面）—— 配置了它时物品框只按它判定，
+                    用于把「桌面长期固定物」排除在占座信号之外。
+
     独占分配：先把每个检测框分给重叠比例最大的座位，再按座位聚合。
     """
     person_threshold = occupancy["person_iou_threshold"]
     object_threshold = occupancy["object_iou_threshold"]
     min_object_area_ratio = occupancy["min_object_area_ratio"]
 
-    # 第一步：每个检测框找到归属座位（重叠比例最大者）
+    # 第一步：每个检测框找到归属座位（重叠比例最大者）。
+    # 人只看椅子区；物品配置了物品区就只看物品区，否则退回椅子区。
     assigned = []  # [(seat_index, ratio), ...]，与 detections 一一对应
     for detection in detections:
+        is_person = detection["class_id"] == 0
         best_index = -1
         best_ratio = 0.0
         for seat_index, seat in enumerate(seats):
-            ratio = inside_ratio(detection["box"], seat["roi"])
+            if is_person or not seat.get("object_roi"):
+                ratio = inside_ratio(detection["box"], seat["roi"])
+            else:
+                ratio = inside_ratio(detection["box"], seat["object_roi"])
             if ratio > best_ratio:
                 best_index = seat_index
                 best_ratio = ratio
@@ -169,7 +179,8 @@ def judge_seats(detections: list, seats: list, occupancy: dict) -> list:
                 )
         else:
             # 物品：既要落在座位内，又要有足够面积，避免远端噪点误判
-            seat_box = seats[seat_index]["roi"]
+            seat = seats[seat_index]
+            seat_box = seat["object_roi"] if seat.get("object_roi") else seat["roi"]
             seat_area = box_area(seat_box)
             object_area_ratio = box_area(detection["box"]) / seat_area if seat_area > 0 else 0.0
             if ratio >= object_threshold and object_area_ratio >= min_object_area_ratio:
@@ -226,6 +237,17 @@ def draw_result(image, seats: list, results: list, detections: list):
         color = STATE_COLORS[info["state"]]
 
         cv2.rectangle(canvas, (x1, y1), (x2, y2), color, 2)
+
+        # 物品区用虚线细框画出，便于区分「判人的椅子区」和「判物的桌面区」
+        if seat.get("object_roi"):
+            ox1, oy1, ox2, oy2 = seat["object_roi"]
+            for offset in range(0, max(ox2 - ox1, oy2 - oy1), 14):
+                if offset < ox2 - ox1:
+                    cv2.line(canvas, (ox1 + offset, oy1), (min(ox1 + offset + 7, ox2), oy1), color, 1)
+                    cv2.line(canvas, (ox1 + offset, oy2), (min(ox1 + offset + 7, ox2), oy2), color, 1)
+                if offset < oy2 - oy1:
+                    cv2.line(canvas, (ox1, oy1 + offset), (ox1, min(oy1 + offset + 7, oy2)), color, 1)
+                    cv2.line(canvas, (ox2, oy1 + offset), (ox2, min(oy1 + offset + 7, oy2)), color, 1)
 
         text = f"{seat['id']} {info['state_cn']}"
         text_y = y1 - 6 if y1 > 20 else y2 + 16

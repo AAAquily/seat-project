@@ -60,3 +60,8 @@ desktop.ini
 config/config.local.yaml
 .env
 *.key
+
+# 真实素材与核对预览（含个人照片，仅存本地）
+data/raw_real/
+data/prelabel_review/
+output/

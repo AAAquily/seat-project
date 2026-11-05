@@ -67,6 +67,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--frame-step", type=int, default=30, help="视频每隔多少帧取一帧，默认 30")
     parser.add_argument("--rounds", type=int, default=1, help="图片序列循环轮数，默认 1")
     parser.add_argument("--config", default="config/config.yaml", help="主配置路径")
+    parser.add_argument("--seats-key", default="seats", help="使用哪套座位表：seats / video_seats")
     parser.add_argument("--db", default="", help="数据库路径，默认取配置 storage.db_path")
     parser.add_argument("--start-time", default="", help="虚拟起始时间 YYYY-MM-DDTHH:MM，默认今天 09:00")
     parser.add_argument("--minutes-per-frame", type=float, default=1.0, help="每帧代表的虚拟分钟数，默认 1.0")
@@ -192,7 +193,7 @@ def main() -> int:
     arguments = parse_arguments()
     config = load_config(arguments.config)
 
-    seats = config.get("seats") or []
+    seats = config.get(arguments.seats_key) or config.get("seats") or []
     if not seats:
         print("[错误] 配置中 seats 为空，请先标定座位 ROI")
         return 1
@@ -237,7 +238,8 @@ def main() -> int:
             break
 
         moment = clock + step * frame_index
-        detections, canvas = detect_frame(model, image, config["model"]["conf"], config["model"]["imgsz"], config["model"]["device"])
+        conf = config["model"].get("video_conf", config["model"]["conf"]) if arguments.seats_key != "seats" else config["model"]["conf"]
+        detections, canvas = detect_frame(model, image, conf, config["model"]["imgsz"], config["model"]["device"])
         seat_results = judge_seat_states(detections, seats, config["occupancy"])
 
         raw_states = {item["id"]: item["state"] for item in seat_results}

@@ -10,8 +10,9 @@ project:
 
 # ---------- 模型 ----------
 model:
-  weights: runs/train/seat_v1/weights/best.pt   # 训练产物；不存在时回退到 models/yolov8n.pt
+  weights: runs/train/seat_v5/weights/best.pt   # v5：真实照片 + 帆布包 + 9 帧单座视频帧（mAP50 0.402，person 0.672）
   conf: 0.25                    # 置信度阈值：低于此值的检测框丢弃（0.35 会漏掉白纸等低对比物品）
+  video_conf: 0.20              # 视频通道单独阈值（坐姿远机位人体置信度约 0.24，需放宽；空帧实测无 person 误检）
   iou: 0.45                     # NMS 重叠阈值
   imgsz: 1280                   # 推理输入尺寸：640 会漏检远端小目标，实测 1280 才稳定
   device: cpu                   # cpu 或 0（有 NVIDIA 显卡时填 0）
@@ -32,54 +33,57 @@ camera:
 # 由 scripts/make_web_rois.py 自动生成（椅子 + 椅前桌面模型），勿手工编辑
 # 由 scripts/make_web_rois.py 自动生成（椅子 + 椅前桌面模型），勿手工编辑
 seats:
-  - id: A01
-    name: A桌1号
-    roi: [537, 454, 602, 573]
-  - id: A02
-    name: A桌2号
-    roi: [599, 454, 664, 573]
-  - id: A03
-    name: A桌3号
-    roi: [587, 580, 652, 705]
-  - id: A04
-    name: A桌4号
-    roi: [675, 580, 740, 705]
-  - id: A05
-    name: A桌5号
-    roi: [753, 580, 818, 705]
-  - id: A06
-    name: A桌6号
-    roi: [452, 475, 674, 534]
-  - id: B01
-    name: B桌1号
-    roi: [1145, 662, 1214, 812]
-  - id: B02
-    name: B桌2号
-    roi: [1305, 662, 1374, 812]
-  - id: B03
-    name: B桌3号
-    roi: [1265, 781, 1499, 858]
-  - id: B04
-    name: B桌4号
-    roi: [1223, 821, 1292, 980]
-  - id: C01
-    name: C桌1号
-    roi: [821, 812, 888, 952]
-  - id: C02
-    name: C桌2号
-    roi: [906, 812, 973, 952]
-  - id: C03
-    name: C桌3号
-    roi: [971, 812, 1038, 952]
-  - id: C04
-    name: C桌4号
-    roi: [898, 899, 1126, 970]
-  - id: C05
-    name: C桌5号
-    roi: [856, 960, 923, 1107]
-  - id: C06
-    name: C桌6号
-    roi: [951, 960, 1018, 1107]
+  - id: S01
+    name: 左桌1号
+    roi: [30, 620, 470, 1250]
+  - id: S02
+    name: 左桌2号
+    roi: [130, 480, 300, 900]
+  - id: S03
+    name: 左桌3号
+    roi: [330, 480, 480, 830]
+  - id: S04
+    name: 后桌1号
+    roi: [600, 420, 730, 780]
+  - id: S05
+    name: 后桌2号
+    roi: [750, 440, 845, 780]
+  - id: S06
+    name: 后墙1号
+    roi: [845, 560, 920, 850]
+  - id: S07
+    name: 后墙2号
+    roi: [905, 560, 995, 860]
+  - id: S08
+    name: 右墙1号
+    roi: [1080, 520, 1260, 810]
+  - id: S09
+    name: 右墙2号
+    roi: [1175, 590, 1470, 1250]
+  - id: S10
+    name: 右墙3号
+    roi: [1420, 550, 1706, 1279]
+  - id: S11
+    name: 前桌1号
+    roi: [350, 780, 720, 1279]
+  - id: S12
+    name: 右下1号
+    roi: [700, 890, 1000, 1279]
+  - id: S13
+    name: 右下2号
+    roi: [1000, 940, 1260, 1279]
+
+# ---------- 视频通道座位（可选）----------
+# 上传视频识别时用这一组座位；留空则回退到上面的 seats。
+# 适用竖屏单座测试视频（720×1280，红椅 + 后方长桌）：
+#   roi        椅子 + 人常在范围（判人）
+#   object_roi 桌面物品区，刻意避开左侧长期放置的纸巾盒和路由器（判物）
+video_seats:
+  - id: V01
+    name: 单座测试
+    roi: [0, 300, 480, 1010]
+    object_roi: [300, 330, 540, 495]
+
 classes:
   person_id: 0
   object_ids: [1, 2, 3, 4]     # 命中任一即视为「有物」
@@ -108,7 +112,7 @@ exempt_time:
 # ---------- 演示与看板 ----------
 # 没有摄像头时，看板的「立即检测」按钮与演示接口使用下面这张底图
 demo:
-  image: data/video_demo/main_view.jpg
+  image: data/raw_real/real_02.jpg
   annotated_image: runs/judge/latest.jpg
 
 # ---------- 服务 ----------

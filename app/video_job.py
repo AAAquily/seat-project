@@ -252,7 +252,8 @@ def run_job(job: VideoJob, config: dict, weights: str) -> None:
         # 按「每秒 sample_interval 帧」换算步长；至少 1 帧
         stride = max(1, int(round(fps * job.sample_interval)))
 
-        seat_ids = [seat["id"] for seat in config["seats"]]
+        seat_config = config.get("video_seats") or config["seats"]
+        seat_ids = [seat["id"] for seat in seat_config]
         occupancy = config["occupancy"]
         tracker = SeatTracker(
             seat_ids,
@@ -293,12 +294,12 @@ def run_job(job: VideoJob, config: dict, weights: str) -> None:
                     detections, canvas = detect_image(
                         frame,
                         weights,
-                        config["model"]["conf"],
+                        config["model"].get("video_conf", config["model"]["conf"]),
                         config["model"]["imgsz"],
                         config["model"]["device"],
                     )
 
-                seat_results = judge_seat_states(detections, config["seats"], occupancy)
+                seat_results = judge_seat_states(detections, seat_config, occupancy)
                 raw_states = {item["id"]: item["state"] for item in seat_results}
                 details = {
                     item["id"]: {
@@ -309,7 +310,7 @@ def run_job(job: VideoJob, config: dict, weights: str) -> None:
                 }
 
                 update = tracker.update(raw_states, clock, details)
-                seats, counts = _build_seats(update.snapshots, config["seats"])
+                seats, counts = _build_seats(update.snapshots, seat_config)
 
                 # 状态切换写进时间线
                 for change in update.changes:
@@ -355,7 +356,7 @@ def run_job(job: VideoJob, config: dict, weights: str) -> None:
                         )
 
                 # 标注图：draw_result 内部会 copy，不会改到 canvas 共享内存
-                annotated = draw_result(canvas, config["seats"], seat_results, detections)
+                annotated = draw_result(canvas, seat_config, seat_results, detections)
                 encoded_ok, buffer = cv2.imencode(
                     ".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 82]
                 )
