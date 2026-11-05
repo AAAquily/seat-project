@@ -16,7 +16,8 @@
     1. 只统计「框与座位 ROI 的交集面积 / 框自身面积」——即框有多大部分落在座位里，
        比 IoU 更适合大小悬殊的场景（人框很大、座位框很小）；
     2. 物品还需满足最小面积比例，避免远端噪点被当成占座证据；
-    3. 一个检测框可同时命中多个座位（相邻座位桌面紧邻），此时各自独立计算，不做互斥。
+    3. 独占分配：每个检测框只归属重叠比例最大的那一个座位。座位 ROI 含椅子区后
+       相邻座位会相互接触，不互斥会导致一个人被多个座位同时计数。
 """
 
 import argparse
@@ -105,45 +106,85 @@ def inside_ratio(detection_box: list, seat_box: list) -> float:
     return intersection_area(detection_box, seat_box) / detection_area
 
 
+def dedup_person_hits(hits: list) -> list:
+    """同一座位内的人物去重：检测器偶尔对同一人输出两个框（NMS 漏掉）。
+
+    规则：按置信度从高到低保留；若候选框与已保留框的「交集面积 / 较小框面积」
+    超过 0.5，视为同一个人，丢弃。
+    """
+    ordered = sorted(hits, key=lambda hit: hit["conf"], reverse=True)
+    kept = []
+    for hit in ordered:
+        duplicate = False
+        for existing in kept:
+            overlap = intersection_area(hit["box"], existing["box"])
+            smaller = min(box_area(hit["box"]), box_area(existing["box"]))
+            if smaller > 0 and overlap / smaller > 0.5:
+                duplicate = True
+                break
+        if not duplicate:
+            kept.append(hit)
+    return kept
+
+
 def judge_seats(detections: list, seats: list, occupancy: dict) -> list:
     """逐座位判定状态。
 
     detections: [{"class_id": int, "conf": float, "box": [x1,y1,x2,y2]}]
     返回: [{"id", "name", "state", "person_count", "object_count", "evidence": [...]}]
+
+    独占分配：先把每个检测框分给重叠比例最大的座位，再按座位聚合。
     """
     person_threshold = occupancy["person_iou_threshold"]
     object_threshold = occupancy["object_iou_threshold"]
     min_object_area_ratio = occupancy["min_object_area_ratio"]
 
+    # 第一步：每个检测框找到归属座位（重叠比例最大者）
+    assigned = []  # [(seat_index, ratio), ...]，与 detections 一一对应
+    for detection in detections:
+        best_index = -1
+        best_ratio = 0.0
+        for seat_index, seat in enumerate(seats):
+            ratio = inside_ratio(detection["box"], seat["roi"])
+            if ratio > best_ratio:
+                best_index = seat_index
+                best_ratio = ratio
+        assigned.append((best_index, best_ratio))
+
+    # 第二步：按座位聚合命中结果
+    hits_by_seat = {index: {"person": [], "object": []} for index in range(len(seats))}
+    for detection, (seat_index, ratio) in zip(detections, assigned):
+        if seat_index < 0 or ratio <= 0:
+            continue
+
+        if detection["class_id"] == 0:
+            # 人：只要框的主体落在座位内即算坐在这里
+            if ratio >= person_threshold:
+                hits_by_seat[seat_index]["person"].append(
+                    {
+                        "ratio": round(ratio, 3),
+                        "conf": round(detection["conf"], 3),
+                        "box": list(detection["box"]),
+                    }
+                )
+        else:
+            # 物品：既要落在座位内，又要有足够面积，避免远端噪点误判
+            seat_box = seats[seat_index]["roi"]
+            seat_area = box_area(seat_box)
+            object_area_ratio = box_area(detection["box"]) / seat_area if seat_area > 0 else 0.0
+            if ratio >= object_threshold and object_area_ratio >= min_object_area_ratio:
+                hits_by_seat[seat_index]["object"].append(
+                    {
+                        "class_id": detection["class_id"],
+                        "ratio": round(ratio, 3),
+                        "conf": round(detection["conf"], 3),
+                    }
+                )
+
     results = []
-
-    for seat in seats:
-        seat_box = seat["roi"]
-        seat_area = box_area(seat_box)
-
-        person_hits = []
-        object_hits = []
-
-        for detection in detections:
-            ratio = inside_ratio(detection["box"], seat_box)
-            if ratio <= 0:
-                continue
-
-            if detection["class_id"] == 0:
-                # 人：只要框的主体落在座位内即算坐在这里
-                if ratio >= person_threshold:
-                    person_hits.append({"ratio": round(ratio, 3), "conf": round(detection["conf"], 3)})
-            else:
-                # 物品：既要落在座位内，又要有足够面积，避免远端噪点误判
-                object_area_ratio = box_area(detection["box"]) / seat_area if seat_area > 0 else 0.0
-                if ratio >= object_threshold and object_area_ratio >= min_object_area_ratio:
-                    object_hits.append(
-                        {
-                            "class_id": detection["class_id"],
-                            "ratio": round(ratio, 3),
-                            "conf": round(detection["conf"], 3),
-                        }
-                    )
+    for seat_index, seat in enumerate(seats):
+        person_hits = dedup_person_hits(hits_by_seat[seat_index]["person"])
+        object_hits = hits_by_seat[seat_index]["object"]
 
         if person_hits:
             state = STATE_OCCUPIED

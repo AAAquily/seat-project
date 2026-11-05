@@ -11,7 +11,7 @@ project:
 # ---------- 模型 ----------
 model:
   weights: runs/train/seat_v1/weights/best.pt   # 训练产物；不存在时回退到 models/yolov8n.pt
-  conf: 0.35                    # 置信度阈值：低于此值的检测框丢弃
+  conf: 0.25                    # 置信度阈值：低于此值的检测框丢弃（0.35 会漏掉白纸等低对比物品）
   iou: 0.45                     # NMS 重叠阈值
   imgsz: 1280                   # 推理输入尺寸：640 会漏检远端小目标，实测 1280 才稳定
   device: cpu                   # cpu 或 0（有 NVIDIA 显卡时填 0）
@@ -28,47 +28,58 @@ camera:
 # 当前内容对应网络演示素材 data/video_demo/main_view.jpg（1920×1410），共 12 座
 # 真实照片到位后执行：python scripts/roi_tool.py --image <底图> --load config/rois.json
 # 重新标定，再把 config/rois.json 的 seats 段覆盖到这里
+# 由 scripts/make_web_rois.py 自动生成（椅子 + 椅前桌面模型），勿手工编辑
+# 由 scripts/make_web_rois.py 自动生成（椅子 + 椅前桌面模型），勿手工编辑
+# 由 scripts/make_web_rois.py 自动生成（椅子 + 椅前桌面模型），勿手工编辑
 seats:
   - id: A01
     name: A桌1号
-    roi: [522, 486, 666, 564]
+    roi: [537, 454, 602, 573]
   - id: A02
     name: A桌2号
-    roi: [666, 486, 811, 564]
+    roi: [599, 454, 664, 573]
   - id: A03
     name: A桌3号
-    roi: [522, 564, 666, 643]
+    roi: [587, 580, 652, 705]
   - id: A04
     name: A桌4号
-    roi: [666, 564, 811, 643]
+    roi: [675, 580, 740, 705]
+  - id: A05
+    name: A桌5号
+    roi: [753, 580, 818, 705]
+  - id: A06
+    name: A桌6号
+    roi: [452, 475, 674, 534]
   - id: B01
     name: B桌1号
-    roi: [1122, 744, 1280, 853]
+    roi: [1145, 662, 1214, 812]
   - id: B02
     name: B桌2号
-    roi: [1280, 744, 1438, 853]
+    roi: [1305, 662, 1374, 812]
   - id: B03
     name: B桌3号
-    roi: [1122, 853, 1280, 962]
+    roi: [1265, 781, 1499, 858]
   - id: B04
     name: B桌4号
-    roi: [1280, 853, 1438, 962]
+    roi: [1223, 821, 1292, 980]
   - id: C01
     name: C桌1号
-    roi: [801, 823, 964, 937]
+    roi: [821, 812, 888, 952]
   - id: C02
     name: C桌2号
-    roi: [964, 823, 1127, 937]
+    roi: [906, 812, 973, 952]
   - id: C03
     name: C桌3号
-    roi: [801, 937, 964, 1052]
+    roi: [971, 812, 1038, 952]
   - id: C04
     name: C桌4号
-    roi: [964, 937, 1127, 1052]
-
-# ---------- 检测类别 ----------
-# 模型输出的类别索引固定为：0=person 1=book 2=bag 3=cup 4=item
-# item 表示书/包/杯以外的占座物品（笔记本电脑、雨伞、外套、快递盒等）
+    roi: [898, 899, 1126, 970]
+  - id: C05
+    name: C桌5号
+    roi: [856, 960, 923, 1107]
+  - id: C06
+    name: C桌6号
+    roi: [951, 960, 1018, 1107]
 classes:
   person_id: 0
   object_ids: [1, 2, 3, 4]     # 命中任一即视为「有物」
@@ -77,7 +88,7 @@ classes:
 occupancy:
   object_leave_minutes: 30      # 「有物无人」持续多少分钟判定为占座
   empty_confirm_frames: 3       # 连续多少帧结果一致才更新状态（防抖，避免人走过误报）
-  person_iou_threshold: 0.15    # 人体框与座位 ROI 的重叠率阈值，超过视为「坐在该座位」
+  person_iou_threshold: 0.50    # 人体框与座位 ROI 的重叠率阈值；取高值防止邻桌的人被算进来（ROI 含椅子区后邻座会接触）
   object_iou_threshold: 0.10    # 物品框与座位 ROI 的重叠率阈值
   min_object_area_ratio: 0.02   # 物品框面积占 ROI 的最低比例，过滤远处小噪点
 
