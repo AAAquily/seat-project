@@ -42,8 +42,12 @@ if SCRIPTS_DIR not in sys.path:
 
 from app import db  # noqa: E402
 from app import video_job  # noqa: E402
-from app.detector import detect_image  # noqa: E402
+from app.detector import detect_image, get_model  # noqa: E402
 from judge_seats import draw_result, judge_seats as judge_seat_states, total_person_count  # noqa: E402
+from dynamic_seats import (  # noqa: E402
+    analyze_image as analyze_dynamic_scene,
+    draw_dynamic,
+)
 
 CONFIG_PATH = os.path.join(PROJECT_ROOT, "config", "config.yaml")
 STATIC_DIR = os.path.join(PROJECT_ROOT, "app", "static")
@@ -94,18 +98,21 @@ def build_counts(seats: list) -> dict:
     return counts
 
 
-def build_uploaded_view(seat_results: list) -> dict:
-    """把单帧判定结果转成看板可直接渲染的结构（与 /api/seats 对齐）。"""
-    roi_by_seat = {seat["id"]: seat["roi"] for seat in CONFIG["seats"]}
-    name_by_seat = {seat["id"]: seat.get("name", seat["id"]) for seat in CONFIG["seats"]}
+def build_uploaded_view(seat_results: list, seat_defs: list = None) -> dict:
+    """把单帧判定结果转成看板可直接渲染的结构（与 /api/seats 对齐）。
+
+    seat_defs 为空时（动态座位模式），直接使用结果里自带的 roi / name。
+    """
+    roi_by_seat = {seat["id"]: seat["roi"] for seat in seat_defs or []}
+    name_by_seat = {seat["id"]: seat.get("name", seat["id"]) for seat in seat_defs or []}
 
     seats = []
     for item in seat_results:
         seats.append(
             {
                 "id": item["id"],
-                "name": name_by_seat.get(item["id"], item["id"]),
-                "roi": roi_by_seat.get(item["id"], [0, 0, 0, 0]),
+                "name": name_by_seat.get(item["id"], item.get("name", item["id"])),
+                "roi": roi_by_seat.get(item["id"], item.get("roi", [0, 0, 0, 0])),
                 "state": item["state"],
                 "state_cn": item.get("state_cn", STATE_LABELS_CN.get(item["state"], item["state"])),
                 "person_count": item.get("person_count", 0),
@@ -123,7 +130,7 @@ def build_uploaded_view(seat_results: list) -> dict:
         "server_time": datetime.now().isoformat(timespec="seconds"),
         "counts": build_counts(seats),
         # 全图在座人数：跨座位去重后的人框数，用于核对画面里的真实人数
-        "total_persons": total_person_count(seat_results),
+        "total_persons": sum(item.get("person_count", 0) for item in seat_results),
         "threshold_minutes": CONFIG["occupancy"]["object_leave_minutes"],
         "seats": seats,
     }
@@ -368,30 +375,27 @@ async def analyze_image(file: UploadFile = File(...)):
         return JSONResponse(status_code=400, content={"error": "图片解码失败，文件可能已损坏"})
 
     started_at = time.perf_counter()
-    detections, canvas = detect_image(
-        frame,
-        resolve_weights(),
-        CONFIG["model"]["conf"],
-        CONFIG["model"]["imgsz"],
-        CONFIG["model"]["device"],
-    )
-    seat_results = judge_seat_states(detections, CONFIG["seats"], CONFIG["occupancy"], CONFIG.get("classes"), image=frame)
-    annotated = draw_result(canvas, CONFIG["seats"], seat_results, detections, CONFIG.get("classes"))
+
+    # 上传图片走「动态座位」管线：不依赖固定 ROI，任意场景可用（2026-11-06）。
+    # 固定 ROI 模式仅适用于已标定的 real_02 场景，看板/视频通道仍走原逻辑。
+    coco_model = get_model(os.path.join(PROJECT_ROOT, "models", "yolov8n.pt"))
+    seat_model = get_model(resolve_weights())
+    detection, seat_results = analyze_dynamic_scene(frame, seat_model, coco_model, device=CONFIG["model"]["device"])
+    annotated = draw_dynamic(frame, seat_results, detection)
     encoded_ok, jpeg = encode_jpeg(annotated, 85)
     elapsed_ms = int((time.perf_counter() - started_at) * 1000)
 
     view = build_uploaded_view(seat_results)
-    view.update(
-        {
-            "mode": "image",
-            "source": filename,
-            "image_size": [int(frame.shape[1]), int(frame.shape[0])],
-            "detections": len(detections),
-            "elapsed_ms": elapsed_ms,
-            "annotated": (
-                "data:image/jpeg;base64," + base64.b64encode(jpeg).decode("ascii") if encoded_ok else ""
-            ),
-        }
+    view["mode"] = "image"
+    view["source"] = filename
+    view["image_size"] = [int(frame.shape[1]), int(frame.shape[0])]
+    view["detections"] = len(detection["persons"]) + len(detection["objects"]) + len(detection["chairs"])
+    view["scene_mode"] = detection["mode"]
+    # 人数优先：全图人数按去重后的人框计，未被分配到座位的人也不丢
+    view["total_persons"] = len(detection["persons"])
+    view["elapsed_ms"] = elapsed_ms
+    view["annotated"] = (
+        "data:image/jpeg;base64," + base64.b64encode(jpeg).decode("ascii") if encoded_ok else ""
     )
     return view
 
