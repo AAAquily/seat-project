@@ -295,10 +295,13 @@ def api_detect():
     if frame is None:
         return JSONResponse(status_code=400, content={"error": "演示底图读取失败"})
 
+    # 演示底图是标定场景：用标定专用权重与阈值（与上传图片的标定通道一致）
+    _fixed = CONFIG["model"].get("fixed_weights") or resolve_weights()
+    _fixed_path = _fixed if os.path.isabs(_fixed) else os.path.join(PROJECT_ROOT, _fixed)
     detections, canvas = detect_image(
         frame,
-        resolve_weights(),
-        CONFIG["model"]["conf"],
+        _fixed_path,
+        CONFIG["model"].get("scene_conf", CONFIG["model"]["conf"]),
         CONFIG["model"]["imgsz"],
         CONFIG["model"]["device"],
     )
@@ -386,9 +389,13 @@ async def analyze_image(file: UploadFile = File(...)):
     # 匹配不上 → 动态座位识别（不依赖 ROI，任意场景可用）。
     matched, reference, inliers = match_scene(frame, CONFIG, PROJECT_ROOT)
     if matched:
+        # 标定场景专用权重（可缺省）：v7b 动态场景更强，但白天帆布包等
+        # 低置信物品 v6 检得出，标定通道保持 v6 以保住「有物无人」状态
+        fixed_weights = CONFIG["model"].get("fixed_weights") or resolve_weights()
+        fixed_path = fixed_weights if os.path.isabs(fixed_weights) else os.path.join(PROJECT_ROOT, fixed_weights)
         detections, canvas = detect_image(
             frame,
-            resolve_weights(),
+            fixed_path,
             CONFIG["model"].get("scene_conf", CONFIG["model"]["conf"]),
             CONFIG["model"]["imgsz"],
             CONFIG["model"]["device"],

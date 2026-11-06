@@ -10,7 +10,11 @@ project:
 
 # ---------- 模型 ----------
 model:
-  weights: runs/train/seat_v6/weights/best.pt   # v6：清理 real_03 重叠人框标签 + stool 类（mAP50 0.395，person 0.707）
+  weights: runs/train/seat_v7b/weights/best.pt   # v7b：清理标签后重训（imgsz 960/150ep），
+                                # 验证集 mAP50 0.586、person 0.888；动态/视频/看板通道使用
+                                # （v7 同参数 640px 重训反而更差 0.401 已弃用；v7b 大尺寸训练是关键）
+  fixed_weights: runs/train/seat_v6/weights/best.pt   # 标定场景（上传图片命中参考图）专用：
+                                # 白天外套椅帆布包 conf≈0.19 只有 v6 检得出，v7b 会把该座误判「空置」
   conf: 0.25                    # 置信度阈值：低于此值的检测框丢弃（0.35 会漏掉白纸等低对比物品）
   scene_conf: 0.15              # 标定场景（上传图片走固定座位表）专用阈值：
                                 # 白天外套椅的帆布包置信度约 0.19，0.25 会漏检导致「有物无人」判成「空座」
@@ -61,7 +65,7 @@ seats:
     roi: [1175, 590, 1470, 1250]
   - id: S09
     name: 右墙3号
-    roi: [1420, 550, 1706, 1279]
+    roi: [1380, 550, 1706, 1279]   # 2026-11-06 左边界 1420→1380：黑发女人框 50.0% 压线被溢出剔除，加宽后 57% 强命中
   - id: S10
     name: 外套椅
     roi: [1000, 850, 1180, 1265]
@@ -100,6 +104,8 @@ occupancy:
   person_iou_threshold: 0.50    # 人体框与座位 ROI 的重叠率阈值；取高值防止邻桌的人被算进来（ROI 含椅子区后邻座会接触）
   person_center_fallback: true  # 人数优先：主体重叠不足但框中心落在座位 ROI 内时也计为有人（防视角偏移漏检）
   person_center_fallback_margin: 60  # 中心点兜底时 ROI 四边的外扩容差（像素）
+  person_spill_own_ratio: 0.55   # 边界溢出剔除的本座位重叠率上限：
+                                 # 0.75 会把右墙3号黑发女（own 0.574，身体横跨两座）当碎片剔除；0.55 保住真命中
   stool_exist_ratio: 0.30       # exists_check=stool 的座位：stool 框与 ROI 重叠率达到该值才算座位存在
   object_iou_threshold: 0.10    # 物品框与座位 ROI 的重叠率阈值
   min_object_area_ratio: 0.02   # 物品框面积占 ROI 的最低比例，过滤远处小噪点
