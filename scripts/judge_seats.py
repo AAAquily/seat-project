@@ -178,7 +178,10 @@ def dedup_person_hits(hits: list) -> list:
     """同一座位内的人物去重：检测器偶尔对同一人输出两个框（NMS 漏掉）。
 
     规则：按置信度从高到低保留；若候选框与已保留框的「交集面积 / 较小框面积」
-    超过 0.5，视为同一个人，丢弃。
+    超过 0.25，视为同一个人，丢弃。
+    阈值取 0.25 而非 0.5：一个座位只对应一把椅子，座位内出现两个框几乎
+    必然是同一人被竖切/横切的碎片（实测黑发女宽人框被切成两半仅重叠 0.28）；
+    真正的两个人不会挤在同一座位 ROI 里还互相叠四分之一以上。
     """
     ordered = sorted(hits, key=lambda hit: hit["conf"], reverse=True)
     kept = []
@@ -187,7 +190,7 @@ def dedup_person_hits(hits: list) -> list:
         for existing in kept:
             overlap = intersection_area(hit["box"], existing["box"])
             smaller = min(box_area(hit["box"]), box_area(existing["box"]))
-            if smaller > 0 and overlap / smaller > 0.5:
+            if smaller > 0 and overlap / smaller > 0.25:
                 duplicate = True
                 break
         if not duplicate:
@@ -234,12 +237,70 @@ def dedup_person_total(detections: list, contain: float = 0.70) -> int:
     return len(kept)
 
 
-def judge_seats(detections: list, seats: list, occupancy: dict, classes: dict = None, image=None) -> list:
+def count_persons_total(detections: list, seat_results: list, removed_boxes: list = None) -> int:
+    """全图人数（人数优先，固定座位表通道）：座位内人数求和 + 未入座人数直数。
+
+    比单纯直数更稳：座位内的人框已经过「归属去重 + 中心点兜底去重 +
+    边界溢出剔除」三道工序，直接取 person_count 之和；未入座的人框
+    （与任何座位证据框重叠 ≤0.5）逐个计入，但先按 removed_boxes
+    （判定器在溢出剔除工序丢弃的碎片框清单）剔除，避免同一人重复计数。
+    未入座人框之间再做一次近重复去重（交集/较小框 >0.5）。
+    """
+    seat_boxes = []
+    seated = 0
+    for item in seat_results:
+        evidence = item.get("person_evidence") or []
+        seated += item.get("person_count", 0)
+        seat_boxes += [hit["box"] for hit in evidence]
+    removed_boxes = removed_boxes or []
+
+    def _removed(box):
+        return any(
+            intersection_area(box, other) / max(1.0, box_area(box)) > 0.6
+            for other in removed_boxes
+        )
+
+    unseated_hits = []
+    for detection in detections:
+        if detection["class_id"] != 0:
+            continue
+        if _removed(detection["box"]):
+            continue  # 已被判定器当碎片剔除，不再计数
+        absorbed = False
+        for other in seat_boxes:
+            inter = intersection_area(detection["box"], other)
+            smaller = min(box_area(detection["box"]), box_area(other))
+            if smaller > 0 and inter / smaller > 0.5:
+                absorbed = True
+                break
+        if not absorbed:
+            unseated_hits.append(detection["box"])
+
+    # 未入座人框之间也要去重：同一人的两个框（近重复）只计一人
+    unseated = 0
+    kept = []
+    for box in sorted(unseated_hits, key=box_area, reverse=True):
+        duplicate = False
+        for other in kept:
+            inter = intersection_area(box, other)
+            smaller = min(box_area(box), box_area(other))
+            if smaller > 0 and inter / smaller > 0.5:
+                duplicate = True
+                break
+        if not duplicate:
+            kept.append(box)
+            unseated += 1
+    return seated + unseated
+
+
+def judge_seats(detections: list, seats: list, occupancy: dict, classes: dict = None, image=None, audit: dict = None) -> list:
     """逐座位判定状态。
 
     detections: [{"class_id": int, "conf": float, "box": [x1,y1,x2,y2]}]
     classes:    配置文件 classes 段（含 stool_id），用于识别「座位实体」检测；可为 None
     image:      原始图像（BGR）；exists_check 座位在 YOLO 检不到实体时用它做 HSV 兜底
+    audit:      可选；传入 dict 时回填调试信息，含
+                "removed_spills"（溢出剔除工序丢弃的人框列表）
     返回: [{"id", "name", "state", "state_cn", "person_count", "object_count",
             "person_evidence": [...], "evidence": [...]}]
 
@@ -374,6 +435,7 @@ def judge_seats(detections: list, seats: list, occupancy: dict, classes: dict = 
     # 时，视为座位 ROI 边界切割人框产生的碎片，予以剔除，避免同一人被相邻座位重复计数。
     spill_own = float(occupancy.get("person_spill_own_ratio", 0.75))
     spill_neighbor = float(occupancy.get("person_spill_neighbor_ratio", 0.20))
+    removed_spills = []  # 被溢出剔除丢弃的人框（供 count_persons_total 精确对账）
     for seat_index, seat in enumerate(seats):
         if not seat_present[seat_index]:
             continue
@@ -404,11 +466,18 @@ def judge_seats(detections: list, seats: list, occupancy: dict, classes: dict = 
                     break
             if not spilled_into_occupied_neighbor:
                 kept_hits.append(hit)
+            else:
+                removed_spills.append(hit["box"])
         hits_by_seat[seat_index]["person"] = kept_hits
 
     results = []
     for seat_index, seat in enumerate(seats):
         person_hits = dedup_person_hits(hits_by_seat[seat_index]["person"])
+        # 记录被座位内去重丢弃的框（同一人被切两框仅保留一个）
+        kept_boxes = {id(hit["box"]) for hit in person_hits}
+        removed_spills += [
+            hit["box"] for hit in hits_by_seat[seat_index]["person"] if id(hit["box"]) not in kept_boxes
+        ]
         object_hits = hits_by_seat[seat_index]["object"]
 
         # exists_check 座位（如红脚凳）没有配套桌面，不适用「物品占座」逻辑；
@@ -439,6 +508,8 @@ def judge_seats(detections: list, seats: list, occupancy: dict, classes: dict = 
             }
         )
 
+    if audit is not None:
+        audit["removed_spills"] = removed_spills
     return results
 
 

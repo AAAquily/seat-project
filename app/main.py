@@ -44,7 +44,7 @@ from app import db  # noqa: E402
 from app import video_job  # noqa: E402
 from app.detector import detect_image, get_model  # noqa: E402
 from judge_seats import (  # noqa: E402
-    dedup_person_total,
+    count_persons_total,
     draw_result,
     judge_seats as judge_seat_states,
     total_person_count,
@@ -400,13 +400,16 @@ async def analyze_image(file: UploadFile = File(...)):
             CONFIG["model"]["imgsz"],
             CONFIG["model"]["device"],
         )
-        seat_results = judge_seat_states(detections, CONFIG["seats"], CONFIG["occupancy"], CONFIG.get("classes"), image=frame)
+        judge_audit = {}
+        seat_results = judge_seat_states(
+            detections, CONFIG["seats"], CONFIG["occupancy"], CONFIG.get("classes"), image=frame, audit=judge_audit
+        )
         annotated = draw_result(canvas, CONFIG["seats"], seat_results, detections, CONFIG.get("classes"))
         view = build_uploaded_view(seat_results, CONFIG["seats"])
         view["scene_mode"] = "calibrated"
         view["matched_reference"] = reference
         view["match_inliers"] = inliers
-        view["total_persons"] = dedup_person_total(detections)
+        view["total_persons"] = count_persons_total(detections, seat_results, judge_audit.get("removed_spills"))
         view["detections"] = len(detections)
     else:
         coco_model = get_model(os.path.join(PROJECT_ROOT, "models", "yolov8n.pt"))
