@@ -317,6 +317,7 @@ def judge_seats(detections: list, seats: list, occupancy: dict, classes: dict = 
                         "class_id": detection["class_id"],
                         "ratio": round(ratio, 3),
                         "conf": round(detection["conf"], 3),
+                        "box": list(detection["box"]),
                     }
                 )
 
@@ -439,47 +440,90 @@ def judge_seats(detections: list, seats: list, occupancy: dict, classes: dict = 
     return results
 
 
+def _boxes_union(boxes: list) -> list:
+    """一组 [x1,y1,x2,y2] 框的并集外包框。"""
+    return [
+        min(b[0] for b in boxes),
+        min(b[1] for b in boxes),
+        max(b[2] for b in boxes),
+        max(b[3] for b in boxes),
+    ]
+
+
+def _clip_box(box: list, bounds: list) -> list:
+    """把框裁剪到 bounds 内（防止证据框溢出座位区域）。"""
+    return [
+        max(box[0], bounds[0]), max(box[1], bounds[1]),
+        min(box[2], bounds[2]), min(box[3], bounds[3]),
+    ]
+
+
+def _label(canvas, text: str, x: int, y: int, color):
+    """带黑描边的状态标签，任意底色上都清晰。"""
+    cv2.putText(canvas, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (15, 15, 15), 4, cv2.LINE_AA)
+    cv2.putText(canvas, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.62, color, 2, cv2.LINE_AA)
+
+
 def draw_result(image, seats: list, results: list, detections: list, classes: dict = None):
-    """把座位状态与检测框画到图上，便于人工核对。"""
+    """标注图（整齐版）：只画「座位框 + 未归属人框」两层，不再叠加全部原始检测框。
+
+    座位框按状态取紧致证据框：
+      有人   → 座位内人框并集（裁剪到 ROI）——框贴合真实坐着的人；
+      有物无人 → 座位内物品框并集（裁剪到 ROI）——框贴合占座物品；
+      空置   → 座位 ROI 本身（本场景空座 ROI 已按椅子紧致标定）；
+      不在画面 → 不画框，只留一个小标签。
+    未被任何座位吸收的人框（过道行人等）画红框单独标出，保证「人数优先」可见。
+    """
     canvas = image.copy()
-    stool_id = (classes or {}).get("stool_id")
-
-    # 先画检测框：人=深红，物品=灰色，座位实体（凳）=蓝色，避免盖住座位标注
-    for detection in detections:
-        x1, y1, x2, y2 = detection["box"]
-        if detection["class_id"] == 0:
-            color = (40, 40, 220)
-        elif stool_id is not None and detection["class_id"] == stool_id:
-            color = (220, 120, 40)
-        else:
-            color = (140, 140, 140)
-        cv2.rectangle(canvas, (x1, y1), (x2, y2), color, 1)
-
     state_by_id = {item["id"]: item for item in results}
 
+    seat_person_boxes = []
+    seat_object_boxes = []
+    for item in results:
+        seat_person_boxes += [hit["box"] for hit in item.get("person_evidence", [])]
+        seat_object_boxes += [hit["box"] for hit in item.get("evidence", [])]
+
+    def _absorbed(box, pool):
+        for other in pool:
+            inter = intersection_area(box, other)
+            smaller = min(box_area(box), box_area(other))
+            if smaller > 0 and inter / smaller > 0.5:
+                return True
+        return False
+
+    # 第一层：未被座位吸收的人框（红，过道/未标定位置的人）
+    for detection in detections:
+        if detection["class_id"] != 0:
+            continue
+        if _absorbed(detection["box"], seat_person_boxes):
+            continue
+        x1, y1, x2, y2 = [int(v) for v in detection["box"]]
+        cv2.rectangle(canvas, (x1, y1), (x2, y2), (40, 40, 220), 2)
+        _label(canvas, "人(未入座)", x1, y1 - 6 if y1 > 24 else y2 + 18, (40, 40, 220))
+
+    # 第二层：座位框（证据驱动紧致框 + 状态标签）
     for seat in seats:
-        x1, y1, x2, y2 = seat["roi"]
         info = state_by_id[seat["id"]]
         color = STATE_COLORS[info["state"]]
+        x1, y1, x2, y2 = seat["roi"]
 
-        # 不在画面中的座位用细虚线框表示，弱化视觉存在感
-        thickness = 1 if info["state"] == STATE_ABSENT else 2
-        cv2.rectangle(canvas, (x1, y1), (x2, y2), color, thickness)
+        if info["state"] == STATE_ABSENT:
+            # 不在画面：细灰虚位框 + 小标签，弱化视觉
+            cv2.rectangle(canvas, (x1, y1), (x2, y2), (160, 160, 160), 1)
+            _label(canvas, f"{seat['id']} 不在画面", x1, y1 - 6 if y1 > 24 else y2 + 18, (160, 160, 160))
+            continue
 
-        # 物品区用虚线细框画出，便于区分「判人的椅子区」和「判物的桌面区」
-        if seat.get("object_roi"):
-            ox1, oy1, ox2, oy2 = seat["object_roi"]
-            for offset in range(0, max(ox2 - ox1, oy2 - oy1), 14):
-                if offset < ox2 - ox1:
-                    cv2.line(canvas, (ox1 + offset, oy1), (min(ox1 + offset + 7, ox2), oy1), color, 1)
-                    cv2.line(canvas, (ox1 + offset, oy2), (min(ox1 + offset + 7, ox2), oy2), color, 1)
-                if offset < oy2 - oy1:
-                    cv2.line(canvas, (ox1, oy1 + offset), (ox1, min(oy1 + offset + 7, oy2)), color, 1)
-                    cv2.line(canvas, (ox2, oy1 + offset), (ox2, min(oy1 + offset + 7, oy2)), color, 1)
+        if info["state"] == STATE_OCCUPIED and info["person_evidence"]:
+            box = _clip_box(_boxes_union([h["box"] for h in info["person_evidence"]]), seat["roi"])
+        elif info["state"] == STATE_OBJECT_ONLY and info["evidence"]:
+            box = _clip_box(_boxes_union([h["box"] for h in info["evidence"]]), seat["roi"])
+        else:
+            box = seat["roi"]
 
+        bx1, by1, bx2, by2 = [int(v) for v in box]
+        cv2.rectangle(canvas, (bx1, by1), (bx2, by2), color, 2)
         text = f"{seat['id']} {info['state_cn']}"
-        text_y = y1 - 6 if y1 > 20 else y2 + 16
-        cv2.putText(canvas, text, (x1, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, thickness)
+        _label(canvas, text, bx1, by1 - 6 if by1 > 24 else by2 + 18, color)
 
     return canvas
 

@@ -252,8 +252,9 @@ def infer_dynamic_seats(detection: dict) -> list:
         seat["persons"] = []
         seat["objects"] = []
 
-    # 人 → 座位：盖住椅子区超阈值 或 中心落在落座区
-    for person in persons:
+    # 人 → 座位：盖住椅子区超阈值 或 中心落在落座区（第一级：椅子=座位）
+    matched = [False] * len(persons)
+    for pidx, person in enumerate(persons):
         pbox = person["box"]
         pcenter = box_center(pbox)
         best, best_score = None, 0.0
@@ -268,6 +269,29 @@ def infer_dynamic_seats(detection: dict) -> list:
                 best, best_score = seat, score
         if best is not None and best_score >= SIT_MIN_CHAIR_COVER:
             best["persons"].append(pbox)
+            matched[pidx] = True
+
+    # 第二级（人数优先）：没匹配到任何椅子的人也各计一个「隐式座位」——
+    # 受拍摄角度限制椅子不可见时，能检测到人的位置就是座位。
+    # 但与某把椅子的落座区已有明显接触（≥15%）却未达归属阈值的人不生成，
+    # 避免「空椅 + 旁边人位」对同一位置双计。
+    implicit = []
+    for pidx, person in enumerate(persons):
+        if matched[pidx]:
+            continue
+        pbox = person["box"]
+        touches_chair = any(
+            intersection(pbox, seat["sit_zone"]) / max(1.0, box_area(seat["sit_zone"])) >= 0.15
+            for seat in seats
+        )
+        if touches_chair:
+            continue
+        pbox = [float(v) for v in pbox]
+        implicit.append({"box": pbox, "conf": person["conf"], "kind": "implicit",
+                         "persons": [pbox], "objects": [],
+                         "sit_zone": pbox, "desk_zone": pbox})
+    seats += implicit
+    seats.sort(key=lambda s: (box_center(s["box"])[1], box_center(s["box"])[0]))
 
     # 物品 → 座位（仅当该座位没人时才作为「有物无人」证据，但归属先记下）
     for obj in objects:
@@ -283,7 +307,7 @@ def infer_dynamic_seats(detection: dict) -> list:
 
     results = []
     for index, seat in enumerate(seats, start=1):
-        kind = "凳" if seat["kind"] == "stool" else "座"
+        kind = {"stool": "凳", "implicit": "人位"}.get(seat["kind"], "座")
         if seat["persons"]:
             state = STATE_OCCUPIED
         elif seat["objects"]:
@@ -299,6 +323,9 @@ def infer_dynamic_seats(detection: dict) -> list:
                 "person_count": len(seat["persons"]),
                 "object_count": len(seat["objects"]),
                 "roi": [int(v) for v in seat["box"]],
+                "kind": seat["kind"],
+                "person_evidence": [{"box": b} for b in seat["persons"]],
+                "evidence": [{"box": o["box"]} for o in seat["objects"]],
             }
         )
     return results
@@ -312,22 +339,56 @@ def total_person_count(detection: dict) -> int:
 # ---------------------------------------------------------------- 绘制
 
 def draw_dynamic(image, seat_results, detection):
-    """标注图：座位框按状态着色，人框红色，物品灰色。"""
+    """标注图（整齐版）：座位框=紧致证据框，只补画未入座的人框。"""
     canvas = image.copy()
-    for obj in detection["objects"]:
-        x1, y1, x2, y2 = [int(v) for v in obj["box"]]
-        cv2.rectangle(canvas, (x1, y1), (x2, y2), (150, 150, 150), 1)
-    for person in detection["persons"]:
-        x1, y1, x2, y2 = [int(v) for v in person["box"]]
-        cv2.rectangle(canvas, (x1, y1), (x2, y2), (40, 40, 220), 2)
+
+    seat_person_boxes = []
     for seat in seat_results:
-        x1, y1, x2, y2 = seat["roi"]
+        seat_person_boxes += [h["box"] for h in seat.get("person_evidence", [])]
+
+    # 未被座位吸收的人框（红）：过道行人等
+    for person in detection["persons"]:
+        pbox = person["box"]
+        absorbed = False
+        for other in seat_person_boxes:
+            inter = intersection(pbox, other)
+            smaller = min(box_area(pbox), box_area(other))
+            if smaller > 0 and inter / smaller > 0.5:
+                absorbed = True
+                break
+        if absorbed:
+            continue
+        x1, y1, x2, y2 = [int(v) for v in pbox]
+        cv2.rectangle(canvas, (x1, y1), (x2, y2), (40, 40, 220), 2)
+        _label(canvas, "人(未入座)", x1, y1 - 6 if y1 > 24 else y2 + 18, (40, 40, 220))
+
+    # 座位框：有人→人框并集；有物无人→物品框并集；空置→椅子框本身
+    for seat in seat_results:
         color = STATE_COLORS[seat["state"]]
-        cv2.rectangle(canvas, (x1, y1), (x2, y2), color, 2)
+        x1, y1, x2, y2 = seat["roi"]
+        if seat["state"] == STATE_OCCUPIED and seat.get("person_evidence"):
+            box = _boxes_union([h["box"] for h in seat["person_evidence"]])
+        elif seat["state"] == STATE_OBJECT_ONLY and seat.get("evidence"):
+            box = _boxes_union([h["box"] for h in seat["evidence"]])
+        else:
+            box = seat["roi"]
+        bx1, by1, bx2, by2 = [int(v) for v in box]
+        cv2.rectangle(canvas, (bx1, by1), (bx2, by2), color, 2)
         text = f"{seat['id']} {seat['state_cn']}"
-        text_y = y1 - 6 if y1 > 22 else y2 + 18
-        cv2.putText(canvas, text, (x1, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+        _label(canvas, text, bx1, by1 - 6 if by1 > 24 else by2 + 18, color)
     return canvas
+
+
+def _boxes_union(boxes):
+    return [
+        min(b[0] for b in boxes), min(b[1] for b in boxes),
+        max(b[2] for b in boxes), max(b[3] for b in boxes),
+    ]
+
+
+def _label(canvas, text, x, y, color):
+    cv2.putText(canvas, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (15, 15, 15), 4, cv2.LINE_AA)
+    cv2.putText(canvas, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.62, color, 2, cv2.LINE_AA)
 
 
 # ---------------------------------------------------------------- 单图入口
