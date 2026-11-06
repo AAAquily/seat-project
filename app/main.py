@@ -43,11 +43,17 @@ if SCRIPTS_DIR not in sys.path:
 from app import db  # noqa: E402
 from app import video_job  # noqa: E402
 from app.detector import detect_image, get_model  # noqa: E402
-from judge_seats import draw_result, judge_seats as judge_seat_states, total_person_count  # noqa: E402
+from judge_seats import (  # noqa: E402
+    dedup_person_total,
+    draw_result,
+    judge_seats as judge_seat_states,
+    total_person_count,
+)
 from dynamic_seats import (  # noqa: E402
     analyze_image as analyze_dynamic_scene,
     draw_dynamic,
 )
+from scene_match import match_scene  # noqa: E402
 
 CONFIG_PATH = os.path.join(PROJECT_ROOT, "config", "config.yaml")
 STATIC_DIR = os.path.join(PROJECT_ROOT, "app", "static")
@@ -376,23 +382,41 @@ async def analyze_image(file: UploadFile = File(...)):
 
     started_at = time.perf_counter()
 
-    # 上传图片走「动态座位」管线：不依赖固定 ROI，任意场景可用（2026-11-06）。
-    # 固定 ROI 模式仅适用于已标定的 real_02 场景，看板/视频通道仍走原逻辑。
-    coco_model = get_model(os.path.join(PROJECT_ROOT, "models", "yolov8n.pt"))
-    seat_model = get_model(resolve_weights())
-    detection, seat_results = analyze_dynamic_scene(frame, seat_model, coco_model, device=CONFIG["model"]["device"])
-    annotated = draw_dynamic(frame, seat_results, detection)
+    # 场景路由：与参考图特征匹配成功 → 固定座位表（标定场景，精度最高）；
+    # 匹配不上 → 动态座位识别（不依赖 ROI，任意场景可用）。
+    matched, reference, inliers = match_scene(frame, CONFIG, PROJECT_ROOT)
+    if matched:
+        detections, canvas = detect_image(
+            frame,
+            resolve_weights(),
+            CONFIG["model"].get("scene_conf", CONFIG["model"]["conf"]),
+            CONFIG["model"]["imgsz"],
+            CONFIG["model"]["device"],
+        )
+        seat_results = judge_seat_states(detections, CONFIG["seats"], CONFIG["occupancy"], CONFIG.get("classes"), image=frame)
+        annotated = draw_result(canvas, CONFIG["seats"], seat_results, detections, CONFIG.get("classes"))
+        view = build_uploaded_view(seat_results, CONFIG["seats"])
+        view["scene_mode"] = "calibrated"
+        view["matched_reference"] = reference
+        view["match_inliers"] = inliers
+        view["total_persons"] = dedup_person_total(detections)
+        view["detections"] = len(detections)
+    else:
+        coco_model = get_model(os.path.join(PROJECT_ROOT, "models", "yolov8n.pt"))
+        seat_model = get_model(resolve_weights())
+        detection, seat_results = analyze_dynamic_scene(frame, seat_model, coco_model, device=CONFIG["model"]["device"])
+        annotated = draw_dynamic(frame, seat_results, detection)
+        view = build_uploaded_view(seat_results)
+        view["scene_mode"] = detection["mode"]
+        view["total_persons"] = len(detection["persons"])
+        view["detections"] = len(detection["persons"]) + len(detection["objects"]) + len(detection["chairs"])
+
     encoded_ok, jpeg = encode_jpeg(annotated, 85)
     elapsed_ms = int((time.perf_counter() - started_at) * 1000)
 
-    view = build_uploaded_view(seat_results)
     view["mode"] = "image"
     view["source"] = filename
     view["image_size"] = [int(frame.shape[1]), int(frame.shape[0])]
-    view["detections"] = len(detection["persons"]) + len(detection["objects"]) + len(detection["chairs"])
-    view["scene_mode"] = detection["mode"]
-    # 人数优先：全图人数按去重后的人框计，未被分配到座位的人也不丢
-    view["total_persons"] = len(detection["persons"])
     view["elapsed_ms"] = elapsed_ms
     view["annotated"] = (
         "data:image/jpeg;base64," + base64.b64encode(jpeg).decode("ascii") if encoded_ok else ""

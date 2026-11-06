@@ -205,6 +205,33 @@ def total_person_count(seat_results: list) -> int:
     return sum(item.get("person_count", 0) for item in seat_results)
 
 
+def dedup_person_total(detections: list, contain: float = 0.5) -> int:
+    """按人框直数全图人数（人数优先原则，固定座位表通道使用）。
+
+    与 total_person_count 的区别：不经过座位 ROI 分配，站在过道、
+    坐在未标定座位上的人也计入——只要画面里能检测到人就算一个人。
+    同一人被切成多个碎片框时（交集/较小框 > contain）只计一次，
+    以置信度最高的框为代表。
+    """
+    persons = sorted(
+        (d for d in detections if d["class_id"] == 0),
+        key=lambda d: d.get("conf", 0),
+        reverse=True,
+    )
+    kept = []
+    for det in persons:
+        duplicate = False
+        for keep in kept:
+            overlap = intersection_area(det["box"], keep["box"])
+            smaller = min(box_area(det["box"]), box_area(keep["box"]))
+            if smaller > 0 and overlap / smaller > contain:
+                duplicate = True
+                break
+        if not duplicate:
+            kept.append(det)
+    return len(kept)
+
+
 def judge_seats(detections: list, seats: list, occupancy: dict, classes: dict = None, image=None) -> list:
     """逐座位判定状态。
 
