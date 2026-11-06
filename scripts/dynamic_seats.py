@@ -56,6 +56,14 @@ TILE_CONF = 0.25
 TILE_FALLBACK_RATIO = 1.25
 # 常规全图推理 conf
 BASE_CONF = 0.35
+# COCO 通用模型的 person 置信度下限：COCO 对海报证件照会给出 0.2~0.6 的低置信度误检，
+# 而业务模型（v8 起）已通过负样本学会拒识海报。该下限只过滤 COCO 来源的 person 框，
+# 不影响物品/椅子检测，也不影响业务模型自身的 person 召回。
+COCO_PERSON_FLOOR = 0.60
+# 低于下限的 COCO person 框若位于「墙面区域」（画面上部 40% 以内）且框高不足图高 12%，
+# 判为海报证件照并丢弃；位于画面中下部（桌椅区）的小框多为远景真人，仍然保留。
+WALL_TOP_RATIO = 0.40
+WALL_MAX_H_RATIO = 0.12
 # 低分辨率小图（短边 < 800px）推理 conf：小图上采样后人框本就偏大，
 # 高阈值会把中景的人整个滤掉，实测 0.25 更稳（f0019: 0.35→14 人 / 0.25→17 人）
 SMALL_IMAGE_MIN_SIDE = 800
@@ -158,6 +166,17 @@ def _tile_offsets(height, width):
     return ys, xs
 
 
+def _is_poster_like(det, image_height):
+    """COCO 低置信度 person 框 + 墙面位置 + 小框 → 海报证件照。"""
+    box = det["box"]
+    box_h = box[3] - box[1]
+    return (
+        det["conf"] < COCO_PERSON_FLOOR
+        and box[1] < WALL_TOP_RATIO * image_height
+        and box_h < WALL_MAX_H_RATIO * image_height
+    )
+
+
 def detect_any_scene(image, seat_model, coco_model, device="cpu"):
     """自适应场景检测：返回统一结构的检测结果。
 
@@ -171,12 +190,18 @@ def detect_any_scene(image, seat_model, coco_model, device="cpu"):
     v6_conf = BASE_CONF if min(image.shape[:2]) >= SMALL_IMAGE_MIN_SIDE else SMALL_IMAGE_CONF
     v6_full = _predict_classes(seat_model, image, v6_conf, device=device)
     coco_full = _predict_classes(coco_model, image, v6_conf, device=device)
+    for det in coco_full:
+        det["source"] = "coco"
 
-    person_boxes = [d for d in v6_full + coco_full if d["class_id"] == COCO_PERSON_ID]
+    height, width = image.shape[:2]
+    person_boxes = [
+        d
+        for d in v6_full + coco_full
+        if d["class_id"] == COCO_PERSON_ID and not _is_poster_like(d, height)
+    ]
     persons = dedup_boxes(person_boxes)
 
     # 远景小人场景 → 切片 + 低阈值重推
-    height, width = image.shape[:2]
     if persons:
         median_h = float(np.median([d["box"][3] - d["box"][1] for d in persons]))
     else:
@@ -201,7 +226,9 @@ def detect_any_scene(image, seat_model, coco_model, device="cpu"):
                 det["box"] = [box[0] + x, box[1] + y, box[2] + x, box[3] + y]
                 merged.append(det)
 
-    tiled_persons = dedup_boxes(nms_merge([d for d in merged if d["class_id"] == COCO_PERSON_ID]))
+    tiled_persons = dedup_boxes(
+        nms_merge([d for d in merged if d["class_id"] == COCO_PERSON_ID])
+    )
     if len(tiled_persons) > len(persons) * TILE_FALLBACK_RATIO:
         # 切片把桌面纹理/椅背误检成人导致人数暴增 → 不可信，回退全图结果
         objects = [d for d in v6_full if d["class_id"] in V6_OBJECT_IDS]
