@@ -1,0 +1,5 @@
+train: images/train
+val: images/val
+test: images/test
+nc: 6
+names: ['person', 'book', 'bag', 'cup', 'item', 'stool']
