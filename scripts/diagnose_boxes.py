@@ -139,7 +139,9 @@ def main():
     parser.add_argument("--conf", type=float, default=-1, help="默认取 config")
     parser.add_argument("--only", nargs="*", default=[], help="只诊断指定文件名（不含扩展名可模糊匹配）")
     parser.add_argument("--iou-thr", type=float, default=0.5)
+    parser.add_argument("--out-dir", default=OUT_DIR, help="输出目录（便于新旧模型分开存）")
     arguments = parser.parse_args()
+    out_dir = arguments.out_dir
 
     config = yaml.safe_load(open("config/config.yaml", "r", encoding="utf-8"))
     weights = arguments.weights or config["model"]["weights"]
@@ -147,7 +149,7 @@ def main():
     seat_model = YOLO(weights)
     coco_model = YOLO("models/yolov8n.pt")
 
-    os.makedirs(OUT_DIR, exist_ok=True)
+    os.makedirs(out_dir, exist_ok=True)
     names = WEB_IMAGES + REAL_IMAGES
     if arguments.only:
         names = [n for n in names if any(key in n for key in arguments.only)]
@@ -189,7 +191,7 @@ def main():
             )
 
         stem = os.path.splitext(name)[0]
-        draw(image, persons, gt_persons, [gt_persons[i] for i in missed_gt], [], os.path.join(OUT_DIR, f"{stem}_框比对.jpg"))
+        draw(image, persons, gt_persons, [gt_persons[i] for i in missed_gt], [], os.path.join(out_dir, f"{stem}_框比对.jpg"))
 
         row = {
             "image": name,
@@ -237,7 +239,7 @@ def main():
         "object_tp": sum(r["object_tp"] for r in rows),
         "rows": rows,
     }
-    with open(os.path.join(OUT_DIR, "box_diagnose.json"), "w", encoding="utf-8") as handle:
+    with open(os.path.join(out_dir, "box_diagnose.json"), "w", encoding="utf-8") as handle:
         json.dump(summary, handle, ensure_ascii=False, indent=2)
 
     print(

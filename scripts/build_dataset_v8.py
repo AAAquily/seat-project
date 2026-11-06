@@ -17,6 +17,7 @@ import random
 import shutil
 
 import cv2
+import numpy as np
 
 PROJECT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(PROJECT)
@@ -149,6 +150,38 @@ def main():
         cv2.imwrite(os.path.join(DST, "images", "train", name), crop)
         write_label(os.path.join(DST, "labels", "train", name.replace(".jpg", ".txt")), [])
         stats["neg_crops"] += 1
+
+    # 3b) 原始尺度拼贴负样本：小裁剪若整批上采样到 imgsz，证件照会被放大约 3 倍，
+    #     出现「训练学会拒识大证件照、推理时小证件照照误检」的尺度错配。
+    #     这里把海报墙裁剪按接近 1:1 贴到大画布四象限（不重叠），保持证件照真实大小。
+    canvas_sources = []
+    for stem, (x1, y1, x2, y2) in NEGATIVE_CROPS:
+        img = cv2.imread(os.path.join(train_dir, stem + ".jpg"))
+        if img is None:
+            continue
+        height, width = img.shape[:2]
+        crop = img[y1:min(y2, height), x1:min(x2, width)]
+        if crop.size:
+            canvas_sources.append(crop)
+    CANVAS_W, CANVAS_H = 1536, 864
+    quads = [(0, 0), (CANVAS_W // 2, 0), (0, CANVAS_H // 2), (CANVAS_W // 2, CANVAS_H // 2)]
+    for idx in range(4):
+        canvas = np.full((CANVAS_H, CANVAS_W, 3), 238, dtype=np.uint8)
+        for qi, crop in enumerate(canvas_sources):
+            qx, qy = quads[qi]
+            cw, ch = CANVAS_W // 2 - 16, CANVAS_H // 2 - 16   # 象限可用尺寸
+            jitter = 0.9 + 0.1 * ((idx + qi) % 3)             # 0.9 / 1.0 / 1.1
+            nh, nw = crop.shape[:2]
+            scale = min(cw / nw, ch / nh, jitter)             # 不超过 1.1，必要时缩小以适配象限
+            nw2, nh2 = int(nw * scale), int(nh * scale)
+            crop_r = cv2.resize(crop, (nw2, nh2))
+            px = qx + (CANVAS_W // 2 - nw2) // 2
+            py = qy + (CANVAS_H // 2 - nh2) // 2
+            canvas[py:py + nh2, px:px + nw2] = crop_r
+        name = f"poster_collage_{idx}.jpg"
+        cv2.imwrite(os.path.join(DST, "images", "train", name), canvas)
+        write_label(os.path.join(DST, "labels", "train", name.replace(".jpg", ".txt")), [])
+        stats["collages"] = stats.get("collages", 0) + 1
 
     # val / test 原样复制（real_08 标签已修正）
     for split in ("val", "test"):

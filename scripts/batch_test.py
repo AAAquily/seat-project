@@ -115,14 +115,19 @@ def is_correct(gt, detected):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=0, help="只测前 N 张（冒烟用）")
+    parser.add_argument("--weights", default="", help="覆盖 config 的模型权重（A/B 对比用）")
+    parser.add_argument("--out", default=OUT_DIR, help="结果输出目录")
     arguments = parser.parse_args()
 
     config = yaml.safe_load(open("config/config.yaml", "r", encoding="utf-8"))
     device = config["model"].get("device", "cpu")
-    seat_model = YOLO(config["model"]["weights"])
+    weights = arguments.weights or config["model"]["weights"]
+    seat_model = YOLO(weights)
     coco_model = YOLO("models/yolov8n.pt")
+    print(f"[配置] 权重={weights}")
 
-    os.makedirs(OUT_DIR, exist_ok=True)
+    out_dir = arguments.out
+    os.makedirs(out_dir, exist_ok=True)
     names = WEB_IMAGES + REAL_IMAGES
     if arguments.limit:
         names = names[: arguments.limit]
@@ -146,7 +151,7 @@ def main():
         correct = is_correct(gt, persons) if gt is not None else None
 
         stem = os.path.splitext(name)[0]
-        cv2.imwrite(os.path.join(OUT_DIR, f"{stem}_标注图.jpg"), draw_dynamic(image, seat_results, detection))
+        cv2.imwrite(os.path.join(out_dir, f"{stem}_标注图.jpg"), draw_dynamic(image, seat_results, detection))
         rows.append(
             {
                 "image": name,
@@ -183,7 +188,7 @@ def main():
         else None,
         "rows": rows,
     }
-    with open(os.path.join(OUT_DIR, "batch_results.json"), "w", encoding="utf-8") as handle:
+    with open(os.path.join(out_dir, "batch_results.json"), "w", encoding="utf-8") as handle:
         json.dump(summary, handle, ensure_ascii=False, indent=2)
 
     print(f"\n===== 总体准确率：{hits}/{len(evaluated)} = {summary['accuracy']}%  平均绝对误差 {summary['mae']} =====")
