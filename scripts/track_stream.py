@@ -240,12 +240,13 @@ def main() -> int:
         moment = clock + step * frame_index
         conf = config["model"].get("video_conf", config["model"]["conf"]) if arguments.seats_key != "seats" else config["model"]["conf"]
         detections, canvas = detect_frame(model, image, conf, config["model"]["imgsz"], config["model"]["device"])
-        seat_results = judge_seat_states(detections, seats, config["occupancy"])
+        seat_results = judge_seat_states(detections, seats, config["occupancy"], config.get("classes"), image=image)
 
-        raw_states = {item["id"]: item["state"] for item in seat_results}
+        # ABSENT（座位实体不在画面）不喂状态机，保持该座位上一状态
+        raw_states = {item["id"]: item["state"] for item in seat_results if item["state"] != "ABSENT"}
         details = {
             item["id"]: {"person_count": item["person_count"], "object_count": item["object_count"]}
-            for item in seat_results
+            for item in seat_results if item["state"] != "ABSENT"
         }
 
         update = tracker.update(raw_states, moment, details)
@@ -283,7 +284,7 @@ def main() -> int:
 
         if arguments.save_every and frame_index % arguments.save_every == 0:
             os.makedirs(run_dir, exist_ok=True)
-            annotated = draw_result(canvas, seats, seat_results, detections)
+            annotated = draw_result(canvas, seats, seat_results, detections, config.get("classes"))
             cv2.imwrite(os.path.join(run_dir, f"frame_{frame_index:04d}.jpg"), annotated)
 
         processed += 1

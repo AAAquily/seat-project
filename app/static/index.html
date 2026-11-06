@@ -218,6 +218,8 @@
     .seat.object .state { color: var(--amber); }
     .seat.empty { background: var(--gray-bg); border-color: #e0ded4; }
     .seat.empty .state { color: var(--gray); }
+    .seat.absent { background: transparent; border-color: #e8e6de; border-style: dashed; opacity: 0.55; }
+    .seat.absent .state { color: var(--gray); }
     .seat.violation {
         background: var(--red-bg);
         border-color: #f0b9b4;
@@ -617,7 +619,8 @@
     const STATE_CLASS = {
         "OCCUPIED": "occupied",
         "OBJECT_ONLY": "object",
-        "EMPTY": "empty"
+        "EMPTY": "empty",
+        "ABSENT": "absent"
     };
 
     const OUTCOME_LABEL = {
@@ -671,6 +674,9 @@
                 meta = "检测到 " + seat.person_count + " 人";
             } else if (seat.state === "OBJECT_ONLY") {
                 meta = "离座 " + (seat.leave_minutes || 0).toFixed(0) + " 分钟 / 阈值 " + payload.threshold_minutes;
+            } else if (seat.state === "ABSENT") {
+                // 座位实体（如红脚凳）不在画面中：不计为座位，仅弱化展示
+                meta = "座位实体不在画面，不计入统计";
             } else {
                 meta = "无检测目标";
             }
@@ -683,7 +689,11 @@
                 </div>`;
         }).join("");
 
-        document.getElementById("seat-total").textContent = "共 " + seats.length + " 座";
+        // 座位总数只计画面中存在的座位；不在画面的单独提示
+        const counted = seats.filter((s) => s.state !== "ABSENT").length;
+        const absentCount = seats.length - counted;
+        document.getElementById("seat-total").textContent =
+            "共 " + counted + " 座" + (absentCount > 0 ? "（另有 " + absentCount + " 座不在画面）" : "");
         document.getElementById("count-occupied").textContent = counts.OCCUPIED || 0;
         document.getElementById("count-object").textContent = counts.OBJECT_ONLY || 0;
         document.getElementById("count-violation").textContent = counts.VIOLATION || 0;
@@ -941,10 +951,12 @@
                 "检出 " + data.detections + " 个目标 · 耗时 " + data.elapsed_ms + " ms";
 
             const counts = data.counts || {};
+            const absentPart = (counts.ABSENT || 0) > 0 ? " · 不在画面 " + counts.ABSENT : "";
             setStatus(
                 "image",
-                "识别完成：有人 " + (counts.OCCUPIED || 0) + " · 有物无人 " + (counts.OBJECT_ONLY || 0) +
-                " · 空置 " + (counts.EMPTY || 0) + "，耗时 " + data.elapsed_ms + " ms",
+                "识别完成：在座 " + (data.total_persons || 0) + " 人 · 有人 " + (counts.OCCUPIED || 0) +
+                " · 有物无人 " + (counts.OBJECT_ONLY || 0) + " · 空置 " + (counts.EMPTY || 0) + absentPart +
+                "，耗时 " + data.elapsed_ms + " ms",
                 "ok"
             );
             document.getElementById("updated").textContent = "单图识别";

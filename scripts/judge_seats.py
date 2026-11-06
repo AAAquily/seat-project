@@ -1,23 +1,35 @@
-"""座位占用状态判定脚本：把 YOLO 检测结果映射到每个座位的三种状态。
+"""座位占用状态判定脚本：把 YOLO 检测结果映射到每个座位的四种状态。
 
-三种状态：
+四种状态：
     OCCUPIED    有人        —— 座位 ROI 内命中 person 框
     OBJECT_ONLY 有物无人    —— 无 person，但命中 book / bag / cup / item（占座的核心信号）
     EMPTY       空置        —— 两者都没有
+    ABSENT      不在画面    —— 配置了 exists_check 的座位（如红脚凳），画面里检测不到
+                            该座位实体时不计为座位，避免不同视角的照片产生幽灵座位
+
+优先级约定（2026-11-06 调整）：
+    1. 准确统计在座人数优先于座位归属的精确性——特殊拍摄角度导致椅子无法识别时，
+       只要某个位置能检测到人，就判定该位置有人员；
+    2. 人框归属采用「主体重叠 + 中心点兜底」双规则：主体落在座位内（ratio ≥ 阈值）
+       为强命中；未强命中时若框中心点落在座位 ROI 内（允许 fallback_margin 像素的
+       外扩容差）也计为命中，避免视角偏移造成漏计；
+    3. 红脚凳等「实体凳」视为一个座位： stool 类检测命中其 ROI 即认为座位存在。
 
 用法示例：
     # 单图判定，输出标注图与 JSON
-    python scripts/judge_seats.py --image data/video_demo/main_view.jpg
+    python scripts/judge_seats.py --image data/raw_real/real_03.jpg
 
     # 换权重与置信度
-    python scripts/judge_seats.py --image xxx.jpg --weights runs/train/seat_v1/weights/best.pt --conf 0.3
+    python scripts/judge_seats.py --image xxx.jpg --weights runs/train/seat_v6/weights/best.pt --conf 0.3
 
 判定逻辑要点：
     1. 只统计「框与座位 ROI 的交集面积 / 框自身面积」——即框有多大部分落在座位里，
        比 IoU 更适合大小悬殊的场景（人框很大、座位框很小）；
     2. 物品还需满足最小面积比例，避免远端噪点被当成占座证据；
     3. 独占分配：每个检测框只归属重叠比例最大的那一个座位。座位 ROI 含椅子区后
-       相邻座位会相互接触，不互斥会导致一个人被多个座位同时计数。
+       相邻座位会相互接触，不互斥会导致一个人被多个座位同时计数；
+    4. 全图在座人数（total_persons）对所有人框做跨座位去重后统计，
+       用于核对「画面里到底有几个人」。
 """
 
 import argparse
@@ -32,18 +44,21 @@ from ultralytics import YOLO
 STATE_OCCUPIED = "OCCUPIED"
 STATE_OBJECT_ONLY = "OBJECT_ONLY"
 STATE_EMPTY = "EMPTY"
+STATE_ABSENT = "ABSENT"
 
 STATE_LABELS_CN = {
     STATE_OCCUPIED: "有人",
     STATE_OBJECT_ONLY: "有物无人",
     STATE_EMPTY: "空置",
+    STATE_ABSENT: "不在画面",
 }
 
-# 绘制配色（BGR）：有人=红，有物无人=橙，空置=绿
+# 绘制配色（BGR）：有人=红，有物无人=橙，空置=绿，不在画面=灰
 STATE_COLORS = {
     STATE_OCCUPIED: (40, 40, 220),
     STATE_OBJECT_ONLY: (0, 140, 255),
     STATE_EMPTY: (60, 170, 60),
+    STATE_ABSENT: (160, 160, 160),
 }
 
 
@@ -106,6 +121,59 @@ def inside_ratio(detection_box: list, seat_box: list) -> float:
     return intersection_area(detection_box, seat_box) / detection_area
 
 
+def box_center(box: list) -> tuple:
+    """返回框中心点 (cx, cy)。"""
+    return ((box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0)
+
+
+def center_in_roi(center: tuple, roi: list, margin: float = 0.0) -> bool:
+    """判断中心点是否落在 ROI 内；margin 为四边外扩容差（像素）。"""
+    cx, cy = center
+    return (roi[0] - margin <= cx <= roi[2] + margin) and (roi[1] - margin <= cy <= roi[3] + margin)
+
+
+def center_margin_distance(center: tuple, roi: list) -> float:
+    """中心点在 ROI 内时返回 0；否则返回到 ROI 的外扩距离（用于多座位竞争时取最近者）。"""
+    cx, cy = center
+    dx = max(roi[0] - cx, 0.0, cx - roi[2])
+    dy = max(roi[1] - cy, 0.0, cy - roi[3])
+    return max(dx, dy)
+
+
+def stool_visible_by_color(image, roi: list, min_area_ratio: float = 0.04) -> bool:
+    """HSV 红色色块兜底：判断 ROI 内是否出现红塑料凳实体。
+
+    适用场景：训练集中 stool 样本太少、YOLO 检测不到时，用颜色特征做确定性判断。
+    红塑料凳是高饱和度红色、近似方形的实心色块，与带靠背红椅（细长/被遮挡）区分度好。
+    返回 True 表示 ROI 内存在凳子实体。
+    """
+    if image is None:
+        return False
+
+    x1, y1, x2, y2 = [int(v) for v in roi]
+    height, width = image.shape[:2]
+    x1, y1 = max(0, x1), max(0, y1)
+    x2, y2 = min(width, x2), min(height, y2)
+    if x2 <= x1 or y2 <= y1:
+        return False
+
+    crop = image[y1:y2, x1:x2]
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    # 红色在 HSV 色环两端各一段；饱和度和明度下限用于排除暗红木色
+    mask = cv2.inRange(hsv, (0, 140, 90), (12, 255, 255)) | cv2.inRange(hsv, (170, 140, 90), (180, 255, 255))
+
+    count, _, stats, _ = cv2.connectedComponentsWithStats(mask)
+    roi_area = (x2 - x1) * (y2 - y1)
+    for index in range(1, count):
+        _, _, w, h, area = stats[index]
+        if area < min_area_ratio * roi_area:
+            continue
+        aspect = w / h if h > 0 else 0.0
+        if 0.5 <= aspect <= 1.6:   # 凳子正视近似方形；细长条多为椅面边缘
+            return True
+    return False
+
+
 def dedup_person_hits(hits: list) -> list:
     """同一座位内的人物去重：检测器偶尔对同一人输出两个框（NMS 漏掉）。
 
@@ -127,22 +195,54 @@ def dedup_person_hits(hits: list) -> list:
     return kept
 
 
-def judge_seats(detections: list, seats: list, occupancy: dict) -> list:
+def total_person_count(seat_results: list) -> int:
+    """统计全图在座人数：各座位人数求和（座位内已去重、跨座位碎片已剔除）。
+
+    注意：不同座位的两个人框可能互相重叠（邻座紧挨着坐），几何上无法与
+    「同一人被切成两框」区分，因此不做跨座位几何去重——重复计数问题由
+    上面的中心点兜底去重和边界溢出剔除两道工序保证。
+    """
+    return sum(item.get("person_count", 0) for item in seat_results)
+
+
+def judge_seats(detections: list, seats: list, occupancy: dict, classes: dict = None, image=None) -> list:
     """逐座位判定状态。
 
     detections: [{"class_id": int, "conf": float, "box": [x1,y1,x2,y2]}]
-    返回: [{"id", "name", "state", "person_count", "object_count", "evidence": [...]}]
+    classes:    配置文件 classes 段（含 stool_id），用于识别「座位实体」检测；可为 None
+    image:      原始图像（BGR）；exists_check 座位在 YOLO 检不到实体时用它做 HSV 兜底
+    返回: [{"id", "name", "state", "state_cn", "person_count", "object_count",
+            "person_evidence": [...], "evidence": [...]}]
 
     座位区域模型（与「座位定义规范」一致）：
-        roi         椅子区 —— person 框按它判定；
-        object_roi  可选，物品区（椅前桌面）—— 配置了它时物品框只按它判定，
-                    用于把「桌面长期固定物」排除在占座信号之外。
+        roi          椅子区 —— person 框按它判定；
+        object_roi   可选，物品区（椅前桌面）—— 配置了它时物品框只按它判定；
+        exists_check 可选，"stool" —— ROI 内检测不到 stool 实体时判 ABSENT（不计为座位）。
 
     独占分配：先把每个检测框分给重叠比例最大的座位，再按座位聚合。
     """
     person_threshold = occupancy["person_iou_threshold"]
     object_threshold = occupancy["object_iou_threshold"]
     min_object_area_ratio = occupancy["min_object_area_ratio"]
+
+    # 人数优先相关参数：中心点兜底开关与外扩容差
+    center_fallback = occupancy.get("person_center_fallback", True)
+    fallback_margin = float(occupancy.get("person_center_fallback_margin", 60))
+    stool_exist_ratio = float(occupancy.get("stool_exist_ratio", 0.30))
+    stool_id = (classes or {}).get("stool_id")
+
+    # 第零步：座位实体存在性检查——配置了 exists_check 的座位，画面里没有实体就判 ABSENT。
+    # 优先用 YOLO 的 stool 检测；检不到时用 HSV 红色色块兜底（红塑料凳颜色特征明确）。
+    stool_boxes = [d["box"] for d in detections if stool_id is not None and d["class_id"] == stool_id]
+    seat_present = []
+    for seat in seats:
+        if seat.get("exists_check") == "stool":
+            found = any(inside_ratio(box, seat["roi"]) >= stool_exist_ratio for box in stool_boxes)
+            if not found:
+                found = stool_visible_by_color(image, seat["roi"])
+            seat_present.append(found)
+        else:
+            seat_present.append(True)
 
     # 第一步：每个检测框找到归属座位（重叠比例最大者）。
     # 人只看椅子区；物品配置了物品区就只看物品区，否则退回椅子区。
@@ -168,13 +268,14 @@ def judge_seats(detections: list, seats: list, occupancy: dict) -> list:
             continue
 
         if detection["class_id"] == 0:
-            # 人：只要框的主体落在座位内即算坐在这里
+            # 人（强命中）：框的主体落在座位内即算坐在这里
             if ratio >= person_threshold:
                 hits_by_seat[seat_index]["person"].append(
                     {
                         "ratio": round(ratio, 3),
                         "conf": round(detection["conf"], 3),
                         "box": list(detection["box"]),
+                        "match": "body",
                     }
                 )
         else:
@@ -192,12 +293,103 @@ def judge_seats(detections: list, seats: list, occupancy: dict) -> list:
                     }
                 )
 
+    # 第三步：人数优先的中心点兜底——主体重叠不足、但框中心落在某座位 ROI（含外扩）
+    # 内的人框，也计为该座位有人；前提是没有其他座位对它构成强命中（避免邻座误吸）。
+    if center_fallback:
+        for detection, (seat_index, ratio) in zip(detections, assigned):
+            if detection["class_id"] != 0 or ratio >= person_threshold:
+                continue  # 已强命中或不是人框，跳过
+
+            center = box_center(detection["box"])
+            candidates = []
+            for seat_index_other, seat in enumerate(seats):
+                if not seat_present[seat_index_other]:
+                    continue  # 座位不在画面中，不参与兜底
+                if center_in_roi(center, seat["roi"], fallback_margin):
+                    distance = center_margin_distance(center, seat["roi"])
+                    candidates.append((distance, seat_index_other))
+
+            if not candidates:
+                continue
+
+            # 跨座位去重：若该框与任何座位已命中的人框高度重叠（同人碎片），不再兜底计数，
+            # 否则同一个人会被「主框 + 碎片框」计成两次
+            duplicate_of_existing = False
+            for other_index, hits in hits_by_seat.items():
+                for existing in hits["person"]:
+                    overlap = intersection_area(detection["box"], existing["box"])
+                    smaller = min(box_area(detection["box"]), box_area(existing["box"]))
+                    if smaller > 0 and overlap / smaller > 0.5:
+                        duplicate_of_existing = True
+                        break
+                if duplicate_of_existing:
+                    break
+            if duplicate_of_existing:
+                continue
+
+            # 取外扩距离最小（最贴近）的座位
+            candidates.sort()
+            _, fallback_index = candidates[0]
+            hits_by_seat[fallback_index]["person"].append(
+                {
+                    "ratio": round(ratio, 3),
+                    "conf": round(detection["conf"], 3),
+                    "box": list(detection["box"]),
+                    "match": "center",
+                }
+            )
+
+    # 第三步半：跨座位边界溢出剔除——人框在本座位重叠率低（< person_spill_own_ratio）
+    # 且明显压进一个「已有人命中」的邻座 ROI（覆盖邻座面积 ≥ person_spill_neighbor_ratio）
+    # 时，视为座位 ROI 边界切割人框产生的碎片，予以剔除，避免同一人被相邻座位重复计数。
+    spill_own = float(occupancy.get("person_spill_own_ratio", 0.75))
+    spill_neighbor = float(occupancy.get("person_spill_neighbor_ratio", 0.20))
+    for seat_index, seat in enumerate(seats):
+        if not seat_present[seat_index]:
+            continue
+        kept_hits = []
+        for hit in hits_by_seat[seat_index]["person"]:
+            own_ratio = hit["ratio"] if hit["match"] == "body" else inside_ratio(hit["box"], seat["roi"])
+            if own_ratio >= spill_own:
+                kept_hits.append(hit)
+                continue
+            spilled_into_occupied_neighbor = False
+            for other_index, other_seat in enumerate(seats):
+                if other_index == seat_index or not seat_present[other_index]:
+                    continue
+                if not hits_by_seat[other_index]["person"]:
+                    continue  # 邻座本身没人，谈不上「溢入已占座位」
+                # 用「覆盖邻座 ROI 面积的比例」衡量溢出程度：小框贴边不算溢出
+                coverage = intersection_area(hit["box"], other_seat["roi"]) / box_area(other_seat["roi"])
+                if box_area(other_seat["roi"]) > 0 and coverage >= spill_neighbor:
+                    # 还需与邻座已命中的人框实际重叠（同一人被边界切开才会框挨框）；
+                    # 只是压到邻座 ROI 空白角落的不算
+                    for other_hit in hits_by_seat[other_index]["person"]:
+                        overlap = intersection_area(hit["box"], other_hit["box"])
+                        smaller = min(box_area(hit["box"]), box_area(other_hit["box"]))
+                        if smaller > 0 and overlap / smaller >= spill_neighbor:
+                            spilled_into_occupied_neighbor = True
+                            break
+                if spilled_into_occupied_neighbor:
+                    break
+            if not spilled_into_occupied_neighbor:
+                kept_hits.append(hit)
+        hits_by_seat[seat_index]["person"] = kept_hits
+
     results = []
     for seat_index, seat in enumerate(seats):
         person_hits = dedup_person_hits(hits_by_seat[seat_index]["person"])
         object_hits = hits_by_seat[seat_index]["object"]
 
-        if person_hits:
+        # exists_check 座位（如红脚凳）没有配套桌面，不适用「物品占座」逻辑；
+        # 凳子旁的保温杯等杂物不应把空凳判成「有物无人」。
+        if seat.get("exists_check"):
+            object_hits = []
+
+        # 不在画面中的座位直接判 ABSENT，不参与三态判定
+        if not seat_present[seat_index]:
+            state = STATE_ABSENT
+        elif person_hits:
             state = STATE_OCCUPIED
         elif object_hits:
             state = STATE_OBJECT_ONLY
@@ -210,8 +402,9 @@ def judge_seats(detections: list, seats: list, occupancy: dict) -> list:
                 "name": seat.get("name", seat["id"]),
                 "state": state,
                 "state_cn": STATE_LABELS_CN[state],
-                "person_count": len(person_hits),
-                "object_count": len(object_hits),
+                "person_count": len(person_hits) if state != STATE_ABSENT else 0,
+                "object_count": len(object_hits) if state != STATE_ABSENT else 0,
+                "person_evidence": person_hits,
                 "evidence": object_hits,
             }
         )
@@ -219,14 +412,20 @@ def judge_seats(detections: list, seats: list, occupancy: dict) -> list:
     return results
 
 
-def draw_result(image, seats: list, results: list, detections: list):
+def draw_result(image, seats: list, results: list, detections: list, classes: dict = None):
     """把座位状态与检测框画到图上，便于人工核对。"""
     canvas = image.copy()
+    stool_id = (classes or {}).get("stool_id")
 
-    # 先画检测框：人=深红，物品=灰色，避免盖住座位标注
+    # 先画检测框：人=深红，物品=灰色，座位实体（凳）=蓝色，避免盖住座位标注
     for detection in detections:
         x1, y1, x2, y2 = detection["box"]
-        color = (40, 40, 220) if detection["class_id"] == 0 else (140, 140, 140)
+        if detection["class_id"] == 0:
+            color = (40, 40, 220)
+        elif stool_id is not None and detection["class_id"] == stool_id:
+            color = (220, 120, 40)
+        else:
+            color = (140, 140, 140)
         cv2.rectangle(canvas, (x1, y1), (x2, y2), color, 1)
 
     state_by_id = {item["id"]: item for item in results}
@@ -236,7 +435,9 @@ def draw_result(image, seats: list, results: list, detections: list):
         info = state_by_id[seat["id"]]
         color = STATE_COLORS[info["state"]]
 
-        cv2.rectangle(canvas, (x1, y1), (x2, y2), color, 2)
+        # 不在画面中的座位用细虚线框表示，弱化视觉存在感
+        thickness = 1 if info["state"] == STATE_ABSENT else 2
+        cv2.rectangle(canvas, (x1, y1), (x2, y2), color, thickness)
 
         # 物品区用虚线细框画出，便于区分「判人的椅子区」和「判物的桌面区」
         if seat.get("object_roi"):
@@ -251,7 +452,7 @@ def draw_result(image, seats: list, results: list, detections: list):
 
         text = f"{seat['id']} {info['state_cn']}"
         text_y = y1 - 6 if y1 > 20 else y2 + 16
-        cv2.putText(canvas, text, (x1, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+        cv2.putText(canvas, text, (x1, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, thickness)
 
     return canvas
 
@@ -293,21 +494,25 @@ def main() -> int:
 
     print(f"[检测] 共 {len(detections)} 个目标")
 
-    seat_results = judge_seats(detections, seats, config["occupancy"])
-    annotated = draw_result(result.orig_img, seats, seat_results, detections)
+    seat_results = judge_seats(detections, seats, config["occupancy"], config.get("classes"), image=result.orig_img)
+    annotated = draw_result(result.orig_img, seats, seat_results, detections, config.get("classes"))
 
     os.makedirs(os.path.dirname(arguments.out_image) or ".", exist_ok=True)
     cv2.imwrite(arguments.out_image, annotated)
 
     os.makedirs(os.path.dirname(arguments.out_json) or ".", exist_ok=True)
+    persons = total_person_count(seat_results)
     summary = {
         "image": arguments.image,
         "weights": weights,
         "totals": {
             "seats": len(seat_results),
+            "counted_seats": sum(1 for item in seat_results if item["state"] != STATE_ABSENT),
+            "total_persons": persons,
             STATE_OCCUPIED: sum(1 for item in seat_results if item["state"] == STATE_OCCUPIED),
             STATE_OBJECT_ONLY: sum(1 for item in seat_results if item["state"] == STATE_OBJECT_ONLY),
             STATE_EMPTY: sum(1 for item in seat_results if item["state"] == STATE_EMPTY),
+            STATE_ABSENT: sum(1 for item in seat_results if item["state"] == STATE_ABSENT),
         },
         "seats": seat_results,
     }
@@ -320,7 +525,8 @@ def main() -> int:
         print(f"  {item['id']:4s} {item['state_cn']:6s} 人={item['person_count']} 物={item['object_count']}")
 
     totals = summary["totals"]
-    print(f"\n[汇总] 有人 {totals[STATE_OCCUPIED]} / 有物无人 {totals[STATE_OBJECT_ONLY]} / 空置 {totals[STATE_EMPTY]}")
+    print(f"\n[汇总] 在座人数 {persons}｜有人 {totals[STATE_OCCUPIED]} / 有物无人 {totals[STATE_OBJECT_ONLY]}"
+          f" / 空置 {totals[STATE_EMPTY]} / 不在画面 {totals[STATE_ABSENT]}")
     print(f"[输出] {arguments.out_json}")
     print(f"[输出] {arguments.out_image}")
     return 0

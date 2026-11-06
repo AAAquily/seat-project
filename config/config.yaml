@@ -10,7 +10,7 @@ project:
 
 # ---------- 模型 ----------
 model:
-  weights: runs/train/seat_v5/weights/best.pt   # v5：真实照片 + 帆布包 + 9 帧单座视频帧（mAP50 0.402，person 0.672）
+  weights: runs/train/seat_v6/weights/best.pt   # v6：清理 real_03 重叠人框标签 + stool 类（mAP50 0.395，person 0.707）
   conf: 0.25                    # 置信度阈值：低于此值的检测框丢弃（0.35 会漏掉白纸等低对比物品）
   video_conf: 0.20              # 视频通道单独阈值（坐姿远机位人体置信度约 0.24，需放宽；空帧实测无 person 误检）
   iou: 0.45                     # NMS 重叠阈值
@@ -72,6 +72,10 @@ seats:
   - id: S13
     name: 右下2号
     roi: [1000, 940, 1260, 1279]
+  - id: S14
+    name: 红脚凳
+    roi: [720, 600, 890, 790]
+    exists_check: stool          # 画面里检测不到凳子实体时判「不在画面」，不计为座位
 
 # ---------- 视频通道座位（可选）----------
 # 上传视频识别时用这一组座位；留空则回退到上面的 seats。
@@ -87,12 +91,16 @@ video_seats:
 classes:
   person_id: 0
   object_ids: [1, 2, 3, 4]     # 命中任一即视为「有物」
+  stool_id: 5                  # 座位实体（红脚凳）：配合座位 exists_check: stool 判断座位是否在画面中
 
 # ---------- 占座判定 ----------
 occupancy:
   object_leave_minutes: 30      # 「有物无人」持续多少分钟判定为占座
   empty_confirm_frames: 3       # 连续多少帧结果一致才更新状态（防抖，避免人走过误报）
   person_iou_threshold: 0.50    # 人体框与座位 ROI 的重叠率阈值；取高值防止邻桌的人被算进来（ROI 含椅子区后邻座会接触）
+  person_center_fallback: true  # 人数优先：主体重叠不足但框中心落在座位 ROI 内时也计为有人（防视角偏移漏检）
+  person_center_fallback_margin: 60  # 中心点兜底时 ROI 四边的外扩容差（像素）
+  stool_exist_ratio: 0.30       # exists_check=stool 的座位：stool 框与 ROI 重叠率达到该值才算座位存在
   object_iou_threshold: 0.10    # 物品框与座位 ROI 的重叠率阈值
   min_object_area_ratio: 0.02   # 物品框面积占 ROI 的最低比例，过滤远处小噪点
 

@@ -43,7 +43,7 @@ if SCRIPTS_DIR not in sys.path:
 from app import db  # noqa: E402
 from app import video_job  # noqa: E402
 from app.detector import detect_image  # noqa: E402
-from judge_seats import draw_result, judge_seats as judge_seat_states  # noqa: E402
+from judge_seats import draw_result, judge_seats as judge_seat_states, total_person_count  # noqa: E402
 
 CONFIG_PATH = os.path.join(PROJECT_ROOT, "config", "config.yaml")
 STATIC_DIR = os.path.join(PROJECT_ROOT, "app", "static")
@@ -59,6 +59,7 @@ STATE_LABELS_CN = {
     "OCCUPIED": "有人",
     "OBJECT_ONLY": "有物无人",
     "EMPTY": "空置",
+    "ABSENT": "不在画面",
 }
 
 with open(CONFIG_PATH, "r", encoding="utf-8") as config_file:
@@ -82,8 +83,8 @@ def resolve_weights() -> str:
 
 
 def build_counts(seats: list) -> dict:
-    """统计各状态座位数。"""
-    counts = {"OCCUPIED": 0, "OBJECT_ONLY": 0, "EMPTY": 0, "VIOLATION": 0}
+    """统计各状态座位数；ABSENT（不在画面）不计入任何占用状态。"""
+    counts = {"OCCUPIED": 0, "OBJECT_ONLY": 0, "EMPTY": 0, "VIOLATION": 0, "ABSENT": 0}
     for seat in seats:
         state = seat["state"]
         if state in counts:
@@ -121,6 +122,8 @@ def build_uploaded_view(seat_results: list) -> dict:
         "updated_at": datetime.now().isoformat(timespec="seconds"),
         "server_time": datetime.now().isoformat(timespec="seconds"),
         "counts": build_counts(seats),
+        # 全图在座人数：跨座位去重后的人框数，用于核对画面里的真实人数
+        "total_persons": total_person_count(seat_results),
         "threshold_minutes": CONFIG["occupancy"]["object_leave_minutes"],
         "seats": seats,
     }
@@ -286,13 +289,15 @@ def api_detect():
         CONFIG["model"]["imgsz"],
         CONFIG["model"]["device"],
     )
-    seat_results = judge_seat_states(detections, CONFIG["seats"], CONFIG["occupancy"])
+    seat_results = judge_seat_states(detections, CONFIG["seats"], CONFIG["occupancy"], CONFIG.get("classes"), image=frame)
 
     # 落库：每座位一条观测，时间取当前时刻
     moment = datetime.now()
     connection = get_connection()
     try:
         for item in seat_results:
+            if item["state"] == "ABSENT":
+                continue  # 座位不在画面中：不写观测，避免污染时序统计
             db.insert_observation(
                 connection,
                 moment,
@@ -311,7 +316,7 @@ def api_detect():
     # 标注图供 /api/frame 展示
     annotated_path = os.path.join(PROJECT_ROOT, CONFIG["demo"]["annotated_image"])
     os.makedirs(os.path.dirname(annotated_path), exist_ok=True)
-    annotated = draw_result(canvas, CONFIG["seats"], seat_results, detections)
+    annotated = draw_result(canvas, CONFIG["seats"], seat_results, detections, CONFIG.get("classes"))
     cv2.imwrite(annotated_path, annotated)
 
     payload = load_current_seats()
@@ -370,8 +375,8 @@ async def analyze_image(file: UploadFile = File(...)):
         CONFIG["model"]["imgsz"],
         CONFIG["model"]["device"],
     )
-    seat_results = judge_seat_states(detections, CONFIG["seats"], CONFIG["occupancy"])
-    annotated = draw_result(canvas, CONFIG["seats"], seat_results, detections)
+    seat_results = judge_seat_states(detections, CONFIG["seats"], CONFIG["occupancy"], CONFIG.get("classes"), image=frame)
+    annotated = draw_result(canvas, CONFIG["seats"], seat_results, detections, CONFIG.get("classes"))
     encoded_ok, jpeg = encode_jpeg(annotated, 85)
     elapsed_ms = int((time.perf_counter() - started_at) * 1000)
 

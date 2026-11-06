@@ -299,14 +299,15 @@ def run_job(job: VideoJob, config: dict, weights: str) -> None:
                         config["model"]["device"],
                     )
 
-                seat_results = judge_seat_states(detections, seat_config, occupancy)
-                raw_states = {item["id"]: item["state"] for item in seat_results}
+                seat_results = judge_seat_states(detections, seat_config, occupancy, config.get("classes"), image=frame)
+                # ABSENT（座位实体不在画面）不喂状态机，保持该座位上一状态
+                raw_states = {item["id"]: item["state"] for item in seat_results if item["state"] != "ABSENT"}
                 details = {
                     item["id"]: {
                         "person_count": item["person_count"],
                         "object_count": item["object_count"],
                     }
-                    for item in seat_results
+                    for item in seat_results if item["state"] != "ABSENT"
                 }
 
                 update = tracker.update(raw_states, clock, details)
@@ -356,7 +357,7 @@ def run_job(job: VideoJob, config: dict, weights: str) -> None:
                         )
 
                 # 标注图：draw_result 内部会 copy，不会改到 canvas 共享内存
-                annotated = draw_result(canvas, seat_config, seat_results, detections)
+                annotated = draw_result(canvas, seat_config, seat_results, detections, config.get("classes"))
                 encoded_ok, buffer = cv2.imencode(
                     ".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 82]
                 )
