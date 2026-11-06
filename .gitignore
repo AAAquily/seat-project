@@ -65,3 +65,4 @@ config/config.local.yaml
 data/raw_real/
 data/prelabel_review/
 output/
+dist_share/
