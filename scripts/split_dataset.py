@@ -99,9 +99,12 @@ def copy_subset(workspace: str, out_root: str, subset_name: str, base_names: lis
 
 
 def write_data_yaml(out_root: str) -> None:
-    """生成 ultralytics 训练用的 data.yaml。"""
+    """生成 ultralytics 训练用的 data.yaml。
+
+    不写 path 字段：ultralytics 会把 yaml 所在目录当作数据集根目录，
+    这样整个项目拷到别的机器（含换盘符）仍可直接训练。
+    """
     yaml_lines = [
-        f"path: {os.path.abspath(out_root).replace(os.sep, '/')}",
         "train: images/train",
         "val: images/val",
         "test: images/test",
