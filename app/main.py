@@ -54,7 +54,12 @@ from dynamic_seats import (  # noqa: E402
     analyze_image as analyze_dynamic_scene,
     draw_dynamic,
 )
-from scene_match import match_scene, resolve_scene_seats  # noqa: E402
+from scene_match import (  # noqa: E402
+    match_scene,
+    resolve_scene_exclusions,
+    resolve_scene_seats,
+    resolve_scene_weights,
+)
 
 CONFIG_PATH = os.path.join(PROJECT_ROOT, "config", "config.yaml")
 STATIC_DIR = os.path.join(PROJECT_ROOT, "app", "static")
@@ -391,8 +396,11 @@ async def analyze_image(file: UploadFile = File(...)):
     matched, reference, inliers = match_scene(frame, CONFIG, PROJECT_ROOT)
     if matched:
         # 标定场景专用权重（可缺省）：v7b 动态场景更强，但白天帆布包等
-        # 低置信物品 v6 检得出，标定通道保持 v6 以保住「有物无人」状态
-        fixed_weights = CONFIG["model"].get("fixed_weights") or resolve_weights()
+        # 低置信物品 v6 检得出，标定通道保持 v6 以保住「有物无人」状态；
+        # 个别机位 v6 融框（real_09 左侧两人）在场景条目里用 weights 覆盖为 v8
+        fixed_weights = (resolve_scene_weights(CONFIG, reference)
+                         or CONFIG["model"].get("fixed_weights")
+                         or resolve_weights())
         fixed_path = fixed_weights if os.path.isabs(fixed_weights) else os.path.join(PROJECT_ROOT, fixed_weights)
         detections, canvas = detect_image(
             frame,
@@ -415,6 +423,15 @@ async def analyze_image(file: UploadFile = File(...)):
         detections = [
             d for d in detections if d["class_id"] != 0 or d["conf"] >= calib_floor
         ]
+        # 场景级「人物排除区」：海报/证件照墙上的人像会被 v8 以 0.6+ 高置信度
+        # 检出 person（与 judge_seats CLI 行为一致），中心点落入排除区即丢弃
+        for rect in resolve_scene_exclusions(CONFIG, reference):
+            detections = [
+                d for d in detections
+                if d["class_id"] != 0
+                or not (rect[0] <= (d["box"][0] + d["box"][2]) / 2 <= rect[2]
+                        and rect[1] <= (d["box"][1] + d["box"][3]) / 2 <= rect[3])
+            ]
         seat_results = judge_seat_states(
             detections, scene_seats, CONFIG["occupancy"], CONFIG.get("classes"), image=frame, audit=judge_audit
         )

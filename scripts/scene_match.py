@@ -135,6 +135,41 @@ def resolve_scene_seats(config: dict, reference_path: str) -> list:
     return config.get("seats") or []
 
 
+def resolve_scene_weights(config: dict, reference_path: str) -> str:
+    """取命中参考图条目指定的专属权重路径（可缺省）。
+
+    个别机位 v6 会把紧邻两人融合成一个大框（real_09 左前景两人背身/侧身），
+    只有 v8 能分开检出；在该场景的 scene_references 条目里写
+    weights: <权重路径> 即可覆盖全局 fixed_weights。
+    未配置时返回空串，由调用方回退 fixed_weights。
+    """
+    return resolve_scene_option(config, reference_path, "weights") or ""
+
+
+def resolve_scene_option(config: dict, reference_path: str, key: str, default=None):
+    """取命中参考图条目里的自定义字段（可缺省），未命中场景返回 default。"""
+    for entry in config.get("scene_references") or []:
+        path = _entry_image(entry)
+        if path and os.path.normpath(path) == os.path.normpath(reference_path or ""):
+            if isinstance(entry, dict):
+                value = entry.get(key)
+                return default if value is None else value
+            break
+    return default
+
+
+def resolve_scene_exclusions(config: dict, reference_path: str) -> list:
+    """取命中参考图条目配置的「人物排除区」矩形列表（可缺省）。
+
+    背景：v8 对墙上海报/证件照里的人像也会以 0.6+ 的高置信度检出 person
+    （real_09 团队成员介绍墙 conf 0.674），现有海报过滤规则只拦低置信框，
+    高置信的真人照拦不住。在场景条目里写 person_excluded: [[x1,y1,x2,y2],...]
+    即可把中心点落入这些矩形的人框直接丢弃（只影响 person 类，物品不受影响）。
+    """
+    value = resolve_scene_option(config, reference_path, "person_excluded")
+    return [rect for rect in (value or []) if isinstance(rect, (list, tuple)) and len(rect) == 4]
+
+
 # ------------------------------------------------------------------ 自检入口
 if __name__ == "__main__":
     """命令行自检：python scripts/scene_match.py [图片路径]"""

@@ -754,7 +754,7 @@ def main() -> int:
 
     # 场景路由：图片命中某张参考图时，使用该参考图的专属座位表（dict 条目内联 seats）；
     # 未命中时回退全局 seats 表。与上传接口（app.main）行为保持一致。
-    from scene_match import match_scene, resolve_scene_seats
+    from scene_match import match_scene, resolve_scene_exclusions, resolve_scene_seats, resolve_scene_weights
 
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     scene_image = cv2.imread(arguments.image)
@@ -776,8 +776,12 @@ def main() -> int:
     # 外套/帆布包」这类低对比物品召回更好（conf≈0.19），v8 会漏；未命中则用 v8 动态阈值。
     if arguments.weights:
         weights = arguments.weights
-    elif matched and config["model"].get("fixed_weights"):
-        weights = config["model"]["fixed_weights"]
+    elif matched:
+        # 场景级权重优先（个别机位 v6 会把紧邻两人融成一个框，需换 v8 分开检出，
+        # 见 scene_references 条目的 weights 字段），未配置时回退全局 fixed_weights
+        weights = (resolve_scene_weights(config, reference)
+                   or config["model"].get("fixed_weights")
+                   or resolve_weights(config, ""))
     else:
         weights = resolve_weights(config, "")
     if arguments.conf >= 0:
@@ -818,6 +822,13 @@ def main() -> int:
         floor_conf = float(config["occupancy"].get("calib_person_conf", 0.30))
         detections = [d for d in detections
                       if d["class_id"] != 0 or d["conf"] >= floor_conf]
+        # 场景级「人物排除区」：海报/证件照墙上的人像会被 v8 以 0.6+ 高置信度
+        # 检出 person（现有海报过滤只拦低置信框），中心点落入排除区即丢弃
+        for rect in resolve_scene_exclusions(config, reference):
+            detections = [d for d in detections
+                          if d["class_id"] != 0
+                          or not (rect[0] <= (d["box"][0] + d["box"][2]) / 2 <= rect[2]
+                                  and rect[1] <= (d["box"][1] + d["box"][3]) / 2 <= rect[3])]
 
     seat_results = judge_seats(detections, seats, config["occupancy"], config.get("classes"), image=result.orig_img)
     annotated = draw_result(result.orig_img, seats, seat_results, detections, config.get("classes"))
