@@ -84,6 +84,15 @@ def _homography_inliers(frame_kp, frame_desc, reference, good) -> int:
     return int(mask.sum()) if mask is not None else 0
 
 
+def _entry_image(entry) -> str:
+    """取参考图条目的路径：兼容旧格式（纯路径字符串）与新格式（dict 含 image 键）。"""
+    if isinstance(entry, str):
+        return entry
+    if isinstance(entry, dict):
+        return entry.get("image", "")
+    return ""
+
+
 def match_scene(frame, config: dict, project_root: str) -> tuple:
     """判断上传图是否属于标定场景。
 
@@ -93,7 +102,10 @@ def match_scene(frame, config: dict, project_root: str) -> tuple:
     frame_kp, frame_desc = _features(frame)
     best_inliers = 0
     best_ref = ""
-    for ref_path in config.get("scene_references") or []:
+    for entry in config.get("scene_references") or []:
+        ref_path = _entry_image(entry)
+        if not ref_path:
+            continue
         reference = _reference_of(ref_path, project_root)
         if reference is None:
             continue
@@ -105,6 +117,22 @@ def match_scene(frame, config: dict, project_root: str) -> tuple:
             best_inliers = inliers
             best_ref = ref_path
     return best_inliers >= MIN_INLIERS, best_ref, best_inliers
+
+
+def resolve_scene_seats(config: dict, reference_path: str) -> list:
+    """取命中参考图对应的座位表。
+
+    规则：scene_references 中与 reference_path 同名的条目若内联了 seats，
+    则优先使用该场景专属表（不同昼夜/布局照片椅子位置可能不同）；
+    否则回退到全局 seats 表。
+    """
+    for entry in config.get("scene_references") or []:
+        path = _entry_image(entry)
+        if path and os.path.normpath(path) == os.path.normpath(reference_path or ""):
+            if isinstance(entry, dict) and entry.get("seats"):
+                return entry["seats"]
+            break
+    return config.get("seats") or []
 
 
 # ------------------------------------------------------------------ 自检入口

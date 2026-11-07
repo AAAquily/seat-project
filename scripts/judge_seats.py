@@ -82,6 +82,21 @@ def load_config(config_path: str) -> dict:
         return yaml.safe_load(config_file)
 
 
+def filter_tiny_persons(detections: list, min_height: float) -> list:
+    """过滤高度不足 min_height 像素的人框（墙上海报区的误检碎片）。
+
+    背景：v6 在 real_02 左桌上方「团认介绍」海报区输出过 35×30 的假人框
+    （conf 0.169），会被中心点兜底误吸进邻座虚增人数。本机位真实人物
+    最矮 ≥90px，min_person_box_height=45 可安全滤除；设 0 或缺省时不过滤。
+    """
+    if not min_height or min_height <= 0:
+        return detections
+    return [
+        d for d in detections
+        if d.get("class_id") != 0 or (d["box"][3] - d["box"][1]) >= min_height
+    ]
+
+
 def resolve_weights(config: dict, override: str) -> str:
     """确定权重路径：命令行优先；配置里的路径不存在时回退到预训练模型并提示。"""
     candidate = override or config["model"]["weights"]
@@ -610,9 +625,24 @@ def main() -> int:
         return 1
 
     config = load_config(arguments.config)
-    seats = config.get("seats") or []
+
+    # 场景路由：图片命中某张参考图时，使用该参考图的专属座位表（dict 条目内联 seats）；
+    # 未命中时回退全局 seats 表。与上传接口（app.main）行为保持一致。
+    from scene_match import match_scene, resolve_scene_seats
+
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    scene_image = cv2.imread(arguments.image)
+    matched, reference, inliers = (False, "", 0)
+    if scene_image is not None:
+        matched, reference, inliers = match_scene(scene_image, config, project_root)
+    if matched:
+        seats = resolve_scene_seats(config, reference)
+        print(f"[场景] 命中标定场景 参考图={reference} 内点={inliers} → 场景专属座位表")
+    else:
+        seats = config.get("seats") or []
+        print("[场景] 未命中标定场景 → 全局座位表")
     if not seats:
-        print("[错误] 配置中 seats 为空，请先用 roi_tool.py 标定座位")
+        print("[错误] 座位表为空，请先在 config.yaml 配置 seats")
         return 1
 
     weights = resolve_weights(config, arguments.weights)
@@ -637,6 +667,10 @@ def main() -> int:
         )
 
     print(f"[检测] 共 {len(detections)} 个目标")
+
+    # 过滤墙上海报区的小假人框（高度低于配置阈值的人框，见 filter_tiny_persons）
+    min_height = float(config.get("occupancy", {}).get("min_person_box_height", 0) or 0)
+    detections = filter_tiny_persons(detections, min_height)
 
     seat_results = judge_seats(detections, seats, config["occupancy"], config.get("classes"), image=result.orig_img)
     annotated = draw_result(result.orig_img, seats, seat_results, detections, config.get("classes"))

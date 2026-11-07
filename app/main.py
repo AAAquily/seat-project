@@ -46,6 +46,7 @@ from app.detector import detect_image, get_model  # noqa: E402
 from judge_seats import (  # noqa: E402
     count_persons_total,
     draw_result,
+    filter_tiny_persons,
     judge_seats as judge_seat_states,
     total_person_count,
 )
@@ -53,7 +54,7 @@ from dynamic_seats import (  # noqa: E402
     analyze_image as analyze_dynamic_scene,
     draw_dynamic,
 )
-from scene_match import match_scene  # noqa: E402
+from scene_match import match_scene, resolve_scene_seats  # noqa: E402
 
 CONFIG_PATH = os.path.join(PROJECT_ROOT, "config", "config.yaml")
 STATIC_DIR = os.path.join(PROJECT_ROOT, "app", "static")
@@ -401,11 +402,16 @@ async def analyze_image(file: UploadFile = File(...)):
             CONFIG["model"]["device"],
         )
         judge_audit = {}
+        # 场景专属座位表：命中参考图若内联 seats（不同昼夜照片椅子位置不同）则优先使用
+        scene_seats = resolve_scene_seats(CONFIG, reference)
+        # 过滤墙上海报区的小假人框（高度低于配置阈值，避免虚增在座人数）
+        min_height = float(CONFIG.get("occupancy", {}).get("min_person_box_height", 0) or 0)
+        detections = filter_tiny_persons(detections, min_height)
         seat_results = judge_seat_states(
-            detections, CONFIG["seats"], CONFIG["occupancy"], CONFIG.get("classes"), image=frame, audit=judge_audit
+            detections, scene_seats, CONFIG["occupancy"], CONFIG.get("classes"), image=frame, audit=judge_audit
         )
-        annotated = draw_result(canvas, CONFIG["seats"], seat_results, detections, CONFIG.get("classes"))
-        view = build_uploaded_view(seat_results, CONFIG["seats"])
+        annotated = draw_result(canvas, scene_seats, seat_results, detections, CONFIG.get("classes"))
+        view = build_uploaded_view(seat_results, scene_seats)
         view["scene_mode"] = "calibrated"
         view["matched_reference"] = reference
         view["match_inliers"] = inliers
