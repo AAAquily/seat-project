@@ -82,19 +82,36 @@ def load_config(config_path: str) -> dict:
         return yaml.safe_load(config_file)
 
 
-def filter_tiny_persons(detections: list, min_height: float) -> list:
-    """过滤高度不足 min_height 像素的人框（墙上海报区的误检碎片）。
+def filter_tiny_persons(detections: list, min_height: float, image_size: tuple = None,
+                        poster_conf: float = 0.60, poster_top: float = 0.42,
+                        poster_height: float = 0.12) -> list:
+    """过滤两类假人框：① 高度不足 min_height 的碎片；② 墙上海报区的低置信人像。
 
-    背景：v6 在 real_02 左桌上方「团认介绍」海报区输出过 35×30 的假人框
-    （conf 0.169），会被中心点兜底误吸进邻座虚增人数。本机位真实人物
-    最矮 ≥90px，min_person_box_height=45 可安全滤除；设 0 或缺省时不过滤。
+    ① 背景：v6 在 real_02 左桌上方「团队介绍」海报区输出过 35×30 的假人框
+       （conf 0.169），会被中心点兜底误吸进邻座虚增人数。本机位真实人物
+       最矮 ≥90px，min_person_box_height=45 可安全滤除。
+    ② 背景：海报/证件照本身是真人照片，模型会当成「坐着的人」检出
+       （real_01 左墙 43×57 conf 0.42 的假人框把 R01 判成有人）。
+       规则与动态通道一致：位于画面上部（top < 40%H）、很矮（< 12%H）、
+       且置信度偏低（< 0.60）→ 丢弃。真实远端小人多在画面中部以下，
+       且 0.60 以上的高置信小框（real_02 右墙 50px 的人）不会被误杀。
+    设 min_height=0 且不给 image_size 时原样返回。
     """
-    if not min_height or min_height <= 0:
-        return detections
-    return [
-        d for d in detections
-        if d.get("class_id") != 0 or (d["box"][3] - d["box"][1]) >= min_height
-    ]
+    kept = []
+    for d in detections:
+        if d.get("class_id") != 0:
+            kept.append(d)
+            continue
+        height = d["box"][3] - d["box"][1]
+        if min_height and height < min_height:
+            continue
+        if image_size:
+            image_h = float(image_size[1] or 0)
+            if image_h > 0 and d["box"][1] < poster_top * image_h \
+                    and height < poster_height * image_h and d["conf"] < poster_conf:
+                continue
+        kept.append(d)
+    return kept
 
 
 def resolve_weights(config: dict, override: str) -> str:
@@ -189,6 +206,30 @@ def stool_visible_by_color(image, roi: list, min_area_ratio: float = 0.04) -> bo
     return False
 
 
+MAX_SAME_PERSON_AREA_RATIO = 3.5
+
+
+def same_person(box_a: list, box_b: list, threshold: float) -> bool:
+    """判断两个框是否为「同一个人的碎片」，而不是前后排的两个人。
+
+    只看「交集 / 较小框面积」时有个致命误判：前景的大框会把身后的人整个包住
+    （real_01 前景白衣男框 [0,519,409,1197] 完整包含左2号绿衣男框 [257,529,389,676]，
+    交集/较小框 = 1.0），于是真人被当成碎片丢掉，该座位只能靠更靠后的遮挡人
+    勉强顶上。真正的「同一人被切成两框」面积几乎相等，所以再加一条面积比约束：
+    两框面积相差 3.5 倍以上时一律不合并。
+    """
+    inter = intersection_area(box_a, box_b)
+    area_a = box_area(box_a)
+    area_b = box_area(box_b)
+    smaller = min(area_a, area_b)
+    if smaller <= 0:
+        return False
+    if inter / smaller < threshold:
+        return False
+    larger = max(area_a, area_b)
+    return larger / smaller <= MAX_SAME_PERSON_AREA_RATIO
+
+
 def dedup_person_hits(hits: list) -> list:
     """同一座位内的人物去重：检测器偶尔对同一人输出两个框（NMS 漏掉）。
 
@@ -203,9 +244,7 @@ def dedup_person_hits(hits: list) -> list:
     for hit in ordered:
         duplicate = False
         for existing in kept:
-            overlap = intersection_area(hit["box"], existing["box"])
-            smaller = min(box_area(hit["box"]), box_area(existing["box"]))
-            if smaller > 0 and overlap / smaller > 0.25:
+            if same_person(hit["box"], existing["box"], 0.25):
                 duplicate = True
                 break
         if not duplicate:
@@ -242,9 +281,7 @@ def dedup_person_total(detections: list, contain: float = 0.70) -> int:
     for det in persons:
         duplicate = False
         for keep in kept:
-            overlap = intersection_area(det["box"], keep["box"])
-            smaller = min(box_area(det["box"]), box_area(keep["box"]))
-            if smaller > 0 and overlap / smaller > contain:
+            if same_person(det["box"], keep["box"], contain):
                 duplicate = True
                 break
         if not duplicate:
@@ -349,21 +386,34 @@ def judge_seats(detections: list, seats: list, occupancy: dict, classes: dict = 
         else:
             seat_present.append(True)
 
-    # 第一步：每个检测框找到归属座位（重叠比例最大者）。
+    # 第一步：每个检测框找到归属座位。
+    # 打分 = 主体重叠率 + IoU：只用「重叠率最大者」时，一个大 ROI（含前景大半个
+    # 身体）会把邻座小人框吸走（real_07 左1黑衣男的框 82% 落在大 ROI 的 C03 里，
+    # 高于自己座位 C01 的 77%，导致 C01 被判空置）。加上 IoU 后，贴合度高的
+    # 小 ROI 会胜出：C01=0.77+0.65 明显高于 C03=0.82+0.14。
     # 人只看椅子区；物品配置了物品区就只看物品区，否则退回椅子区。
     assigned = []  # [(seat_index, ratio), ...]，与 detections 一一对应
     for detection in detections:
         is_person = detection["class_id"] == 0
         best_index = -1
         best_ratio = 0.0
+        best_score = 0.0
         for seat_index, seat in enumerate(seats):
             if is_person or not seat.get("object_roi"):
-                ratio = inside_ratio(detection["box"], seat["roi"])
+                roi = seat["roi"]
             else:
-                ratio = inside_ratio(detection["box"], seat["object_roi"])
-            if ratio > best_ratio:
+                roi = seat["object_roi"]
+            ratio = inside_ratio(detection["box"], roi)
+            if ratio <= 0:
+                continue
+            inter = intersection_area(detection["box"], roi)
+            union = box_area(detection["box"]) + box_area(roi) - inter
+            iou = inter / union if union > 0 else 0.0
+            score = ratio + iou
+            if score > best_score:
                 best_index = seat_index
                 best_ratio = ratio
+                best_score = score
         assigned.append((best_index, best_ratio))
 
     # 第二步：按座位聚合命中结果
@@ -373,6 +423,13 @@ def judge_seats(detections: list, seats: list, occupancy: dict, classes: dict = 
             continue
 
         if detection["class_id"] == 0:
+            # 座位级人框置信度下限（可选）：个别座位（如 real_02 右墙3号空椅放包）
+            # 会被 v6 以 0.37 的低置信度把「椅子+包」整体误检成人，而真人前景大框
+            # （real_04 马尾女 0.42、real_09 侧身男 0.34）同样可能占满整个 ROI，
+            # 几何特征区分不了，只能按人工标注对个别座位单独设阈值。
+            min_conf = float(seats[seat_index].get("min_person_conf", 0) or 0)
+            if min_conf > 0 and detection["conf"] < min_conf:
+                continue
             # 人（强命中）：框的主体落在座位内即算坐在这里
             if ratio >= person_threshold:
                 hits_by_seat[seat_index]["person"].append(
@@ -408,24 +465,35 @@ def judge_seats(detections: list, seats: list, occupancy: dict, classes: dict = 
 
             center = box_center(detection["box"])
             candidates = []
+            detection_area = box_area(detection["box"])
             for seat_index_other, seat in enumerate(seats):
                 if not seat_present[seat_index_other]:
                     continue  # 座位不在画面中，不参与兜底
+                # 跨好几个座位整体的超大框（real_05 的 0.21 框 417×670 罩住 4 个座位）
+                # 中心点毫无意义，不能拿来兜底，否则会把真人的框当碎片挤掉
+                if detection_area > 2.5 * box_area(seat["roi"]):
+                    continue
                 if center_in_roi(center, seat["roi"], fallback_margin):
                     distance = center_margin_distance(center, seat["roi"])
                     candidates.append((distance, seat_index_other))
 
             if not candidates:
+                if os.environ.get("SEAT_DEBUG"):
+                    print(f"[dbg] box={detection['box']} conf={detection['conf']:.2f} assigned={seat_index} ratio={ratio:.2f} 无兜底候选")
                 continue
+            if os.environ.get("SEAT_DEBUG"):
+                print(f"[dbg] box={detection['box']} conf={detection['conf']:.2f} assigned={seat_index} ratio={ratio:.2f} 候选={[(d, seats[i]['id']) for d, i in sorted(candidates)]}")
 
             # 跨座位去重：若该框与任何座位已命中的人框高度重叠（同人碎片），不再兜底计数，
-            # 否则同一个人会被「主框 + 碎片框」计成两次
+            # 否则同一个人会被「主框 + 碎片框」计成两次。
+            # 阈值取 0.70（2026-11-07 由 0.50 上调）：相邻座位前后排的人本来就重度重叠
+            # （real_05 前景白衣女与其左后白衣男重叠 0.60），0.50 会把真人当碎片丢掉，
+            # 导致该座判「有物无人」；几乎完全重合的双框才应视为同一人。
+            cross_dedup = float(occupancy.get("person_cross_dedup_ratio", 0.70))
             duplicate_of_existing = False
             for other_index, hits in hits_by_seat.items():
                 for existing in hits["person"]:
-                    overlap = intersection_area(detection["box"], existing["box"])
-                    smaller = min(box_area(detection["box"]), box_area(existing["box"]))
-                    if smaller > 0 and overlap / smaller > 0.5:
+                    if same_person(detection["box"], existing["box"], cross_dedup):
                         duplicate_of_existing = True
                         break
                 if duplicate_of_existing:
@@ -433,6 +501,11 @@ def judge_seats(detections: list, seats: list, occupancy: dict, classes: dict = 
             if duplicate_of_existing:
                 continue
 
+            # 低置信框不做兜底：挂白外套的空椅、海报人像会被 v6 以 0.2 左右的
+            # 置信度误检成「人」（real_08 D06 实测 conf 0.23），兜底进去会把
+            # 空椅判成有人。0.30 以上的兜底框（各图实测 ≥0.5）不受影响。
+            if detection["conf"] < float(occupancy.get("fallback_min_conf", 0.30)):
+                continue
             # 取外扩距离最小（最贴近）的座位
             candidates.sort()
             _, fallback_index = candidates[0]
@@ -451,6 +524,7 @@ def judge_seats(detections: list, seats: list, occupancy: dict, classes: dict = 
     spill_own = float(occupancy.get("person_spill_own_ratio", 0.75))
     spill_neighbor = float(occupancy.get("person_spill_neighbor_ratio", 0.20))
     removed_spills = []  # 被溢出剔除丢弃的人框（供 count_persons_total 精确对账）
+    spilled_meta = []    # [(seat_index, hit)]：记录剔除来源，供下面「回退保底」使用
     for seat_index, seat in enumerate(seats):
         if not seat_present[seat_index]:
             continue
@@ -483,7 +557,46 @@ def judge_seats(detections: list, seats: list, occupancy: dict, classes: dict = 
                 kept_hits.append(hit)
             else:
                 removed_spills.append(hit["box"])
+                spilled_meta.append((seat_index, hit))
         hits_by_seat[seat_index]["person"] = kept_hits
+
+    # 第三步末：溢出剔除的回退保底（2026-11-07 新增）——剔除的前提是「同一个人的
+    # 主体已被邻座算过」，但如果剔完之后本座位一个框都不剩，说明这个人其实只被
+    # 本座识别到（邻座那个「已占」框是另一个人），此时必须回填，否则整座漏人。
+    # 实测 real_01 右墙第三位白衣女：人框 63% 落在 R12、压到 R11，被剔除后
+    # R11/R12 双双空置，实际两座都有人。
+    # 回填条件收紧：① 该框在本座的 own_ratio ≥ person_threshold（主体确实在本座内，
+    # 不是边缘碎片）；② 该框与所有已保留人框都不同（否则是同一人已被计数）。
+    recover_own = float(occupancy.get("spill_recover_own_ratio", 0.45))
+    recover_order = sorted(spilled_meta, key=lambda item: -inside_ratio(item[1]["box"], seats[item[0]]["roi"]))
+    for seat_index, hit in recover_order:
+        if hits_by_seat[seat_index]["person"]:
+            continue
+        if not seat_present[seat_index]:
+            continue
+        own_here = inside_ratio(hit["box"], seats[seat_index]["roi"])
+        # 0.45 而非 0.50：real_05 前景白衣女的框对 R03 的 own 是 0.486，正好卡在
+        # 强命中阈值之下，被溢出剔除后就再也不回来了，整座判「空置」。
+        if own_here < recover_own:
+            continue
+        already_counted = False
+        for other_index, hits in hits_by_seat.items():
+            for existing in hits["person"]:
+                if same_person(hit["box"], existing["box"], cross_dedup):
+                    already_counted = True
+                    break
+            if already_counted:
+                break
+        if already_counted:
+            continue
+        hits_by_seat[seat_index]["person"].append(dict(hit, match=hit.get("match", "body")))
+        if hit["box"] in removed_spills:
+            removed_spills.remove(hit["box"])
+
+    if os.environ.get("SEAT_DEBUG"):
+        for i, v in hits_by_seat.items():
+            if v["person"]:
+                print(f"[dbg-hit] {seats[i]['id']} " + str([(h['match'], h['conf'], h['box']) for h in v['person']]))
 
     results = []
     for seat_index, seat in enumerate(seats):
@@ -525,6 +638,19 @@ def judge_seats(detections: list, seats: list, occupancy: dict, classes: dict = 
 
     if audit is not None:
         audit["removed_spills"] = removed_spills
+        audit["assigned"] = [
+            {"cls": d["class_id"], "conf": round(d["conf"], 3), "box": list(d["box"]),
+             "seat": seats[i]["id"] if i >= 0 else None, "ratio": round(r, 3)}
+            for d, (i, r) in zip(detections, assigned)
+        ]
+        audit["hits_by_seat"] = {
+            seats[i]["id"]: {
+                "person": [{"match": h["match"], "conf": h["conf"], "box": h["box"]}
+                           for h in v["person"]],
+                "object": len(v["object"]),
+            }
+            for i, v in hits_by_seat.items()
+        }
     return results
 
 
@@ -645,11 +771,24 @@ def main() -> int:
         print("[错误] 座位表为空，请先在 config.yaml 配置 seats")
         return 1
 
-    weights = resolve_weights(config, arguments.weights)
-    conf = arguments.conf if arguments.conf >= 0 else config["model"]["conf"]
+    # 双权重路由（与 app.main 上传接口保持一致，2026-11-07 补齐）：
+    # 命中标定场景 → 固定座位表通道，用 fixed_weights + scene_conf。v6 对「椅子上摊着
+    # 外套/帆布包」这类低对比物品召回更好（conf≈0.19），v8 会漏；未命中则用 v8 动态阈值。
+    if arguments.weights:
+        weights = arguments.weights
+    elif matched and config["model"].get("fixed_weights"):
+        weights = config["model"]["fixed_weights"]
+    else:
+        weights = resolve_weights(config, "")
+    if arguments.conf >= 0:
+        conf = arguments.conf
+    elif matched:
+        conf = float(config["model"].get("scene_conf", config["model"]["conf"]))
+    else:
+        conf = config["model"]["conf"]
     imgsz = arguments.imgsz if arguments.imgsz > 0 else config["model"]["imgsz"]
 
-    print(f"[推理] 权重={weights} conf={conf} imgsz={imgsz} 座位数={len(seats)}")
+    print(f"[推理] 权重={weights} conf={conf} imgsz={imgsz} 座位数={len(seats)} 通道={'标定' if matched else '动态'}")
 
     model = YOLO(weights)
     prediction = model.predict(source=arguments.image, conf=conf, imgsz=imgsz, device=config["model"]["device"], verbose=False)
@@ -670,7 +809,15 @@ def main() -> int:
 
     # 过滤墙上海报区的小假人框（高度低于配置阈值的人框，见 filter_tiny_persons）
     min_height = float(config.get("occupancy", {}).get("min_person_box_height", 0) or 0)
-    detections = filter_tiny_persons(detections, min_height)
+    detections = filter_tiny_persons(detections, min_height,
+                                     (result.orig_img.shape[1], result.orig_img.shape[0]))
+    # 标定通道的人框置信度下限：scene_conf 0.15 是为低对比物品（椅上摊着的外套、
+    # 帆布包）放宽的，人框不需要这么低——0.30 以下的「人」几乎全是海报人像、
+    # 挂衣空椅这类误检（real_08 挂白外套椅 conf 0.23），留着会被兜底吸进空座
+    if matched:
+        floor_conf = float(config["occupancy"].get("calib_person_conf", 0.30))
+        detections = [d for d in detections
+                      if d["class_id"] != 0 or d["conf"] >= floor_conf]
 
     seat_results = judge_seats(detections, seats, config["occupancy"], config.get("classes"), image=result.orig_img)
     annotated = draw_result(result.orig_img, seats, seat_results, detections, config.get("classes"))

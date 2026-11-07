@@ -406,7 +406,15 @@ async def analyze_image(file: UploadFile = File(...)):
         scene_seats = resolve_scene_seats(CONFIG, reference)
         # 过滤墙上海报区的小假人框（高度低于配置阈值，避免虚增在座人数）
         min_height = float(CONFIG.get("occupancy", {}).get("min_person_box_height", 0) or 0)
-        detections = filter_tiny_persons(detections, min_height)
+        detections = filter_tiny_persons(
+            detections, min_height, (frame.shape[1], frame.shape[0])
+        )
+        # 标定通道人框置信度下限（与 judge_seats CLI 一致）：0.30 以下的「人」
+        # 几乎全是海报人像、挂衣空椅这类误检
+        calib_floor = float(CONFIG["occupancy"].get("calib_person_conf", 0.30))
+        detections = [
+            d for d in detections if d["class_id"] != 0 or d["conf"] >= calib_floor
+        ]
         seat_results = judge_seat_states(
             detections, scene_seats, CONFIG["occupancy"], CONFIG.get("classes"), image=frame, audit=judge_audit
         )
