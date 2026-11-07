@@ -3,1136 +3,2121 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>自习室座位占用监测</title>
+<title>自习室座位占座情况检测系统</title>
 <style>
-    :root {
-        --bg-page: #f6f7f9;
-        --bg-card: #ffffff;
-        --text-main: #1f2328;
-        --text-sub: #5f6570;
-        --text-hint: #8b919b;
-        --border: #e3e5e9;
-
-        --green: #1d9e75;
-        --green-bg: #e1f5ee;
-        --amber: #ba7517;
-        --amber-bg: #faeeda;
-        --gray: #7a7d83;
-        --gray-bg: #f1efe8;
-        --red: #c7392f;
-        --red-bg: #fcebeb;
-        --blue: #185fa5;
-        --blue-bg: #e6f1fb;
-    }
-
-    * { box-sizing: border-box; }
-
-    body {
-        margin: 0;
-        padding: 24px 28px 40px;
-        background: var(--bg-page);
-        color: var(--text-main);
-        font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
-        font-size: 14px;
-        line-height: 1.6;
-    }
-
-    header {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 24px;
-        margin-bottom: 20px;
-    }
-
-    h1 {
-        margin: 0 0 4px;
-        font-size: 20px;
-        font-weight: 600;
-        letter-spacing: 0.5px;
-    }
-
-    .subtitle {
-        color: var(--text-sub);
-        font-size: 13px;
-    }
-
-    .header-right {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        flex-shrink: 0;
-    }
-
-    .stamp {
-        text-align: right;
-        color: var(--text-sub);
-        font-size: 12px;
-        line-height: 1.5;
-    }
-
-    .stamp strong { color: var(--text-main); font-weight: 600; }
-
-    button {
-        border: 1px solid var(--border);
-        background: var(--bg-card);
-        color: var(--text-main);
-        padding: 8px 16px;
-        border-radius: 8px;
-        font-size: 13px;
-        font-family: inherit;
-        cursor: pointer;
-        transition: border-color 0.15s, background 0.15s;
-    }
-
-    button:hover { border-color: #c4c8ce; background: #fafbfc; }
-    button:disabled { opacity: 0.55; cursor: default; }
-
-    button.primary {
-        background: var(--blue);
-        border-color: var(--blue);
-        color: #fff;
-    }
-
-    button.primary:hover { background: #134e8a; border-color: #134e8a; }
-
-    .stats {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 14px;
-        margin-bottom: 18px;
-    }
-
-    .stat {
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 14px 16px;
-    }
-
-    .stat .label {
-        font-size: 12px;
-        color: var(--text-sub);
-        margin-bottom: 6px;
-    }
-
-    .stat .value {
-        font-size: 26px;
-        font-weight: 600;
-        line-height: 1.1;
-    }
-
-    .stat .value span {
-        font-size: 13px;
-        font-weight: 400;
-        color: var(--text-hint);
-        margin-left: 4px;
-    }
-
-    .stat.occupied .value { color: var(--green); }
-    .stat.object .value { color: var(--amber); }
-    .stat.violation .value { color: var(--red); }
-    .stat.empty .value { color: var(--gray); }
-
-    .layout {
-        display: grid;
-        grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-        gap: 16px;
-        margin-bottom: 16px;
-    }
-
-    .panel {
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 16px 18px 18px;
-    }
-
-    .panel h2 {
-        margin: 0 0 12px;
-        font-size: 14px;
-        font-weight: 600;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-    }
-
-    .panel h2 .hint {
-        font-weight: 400;
-        font-size: 12px;
-        color: var(--text-hint);
-    }
-
-    .legend {
-        display: flex;
-        gap: 14px;
-        font-size: 12px;
-        color: var(--text-sub);
-        margin-bottom: 14px;
-        flex-wrap: wrap;
-    }
-
-    .legend i {
-        display: inline-block;
-        width: 9px;
-        height: 9px;
-        border-radius: 2px;
-        margin-right: 5px;
-        vertical-align: middle;
-    }
-
-    .seat-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
-        gap: 10px;
-    }
-
-    .seat {
-        border-radius: 8px;
-        padding: 10px 12px;
-        border: 1px solid transparent;
-        position: relative;
-        min-height: 78px;
-    }
-
-    .seat .id {
-        font-size: 14px;
-        font-weight: 600;
-        margin-bottom: 2px;
-    }
-
-    .seat .state {
-        font-size: 12px;
-        margin-bottom: 4px;
-    }
-
-    .seat .meta {
-        font-size: 11px;
-        color: var(--text-sub);
-        line-height: 1.45;
-    }
-
-    .seat.occupied { background: var(--green-bg); border-color: #b8e3d3; }
-    .seat.occupied .state { color: var(--green); }
-    .seat.object { background: var(--amber-bg); border-color: #efd9ab; }
-    .seat.object .state { color: var(--amber); }
-    .seat.empty { background: var(--gray-bg); border-color: #e0ded4; }
-    .seat.empty .state { color: var(--gray); }
-    .seat.absent { background: transparent; border-color: #e8e6de; border-style: dashed; opacity: 0.55; }
-    .seat.absent .state { color: var(--gray); }
-    .seat.violation {
-        background: var(--red-bg);
-        border-color: #f0b9b4;
-        box-shadow: 0 0 0 1px #f0b9b4 inset;
-    }
-    .seat.violation .state { color: var(--red); font-weight: 600; }
-
-    .badge {
-        position: absolute;
-        top: 8px;
-        right: 8px;
-        font-size: 10px;
-        padding: 1px 6px;
-        border-radius: 999px;
-        background: var(--red);
-        color: #fff;
-        letter-spacing: 0.3px;
-    }
-
-    @media (prefers-reduced-motion: no-preference) {
-        .seat.violation { animation: pulse 2.2s ease-in-out infinite; }
-        @keyframes pulse {
-            0%, 100% { box-shadow: 0 0 0 1px #f0b9b4 inset; }
-            50% { box-shadow: 0 0 0 2px #e24b4a inset; }
-        }
-    }
-
-    .frame-wrap {
-        border-radius: 8px;
-        overflow: hidden;
-        background: #eef0f3;
-        border: 1px solid var(--border);
-    }
-
-    .frame-wrap img {
-        display: block;
-        width: 100%;
-        height: auto;
-    }
-
-    .frame-note {
-        margin-top: 10px;
-        font-size: 12px;
-        color: var(--text-hint);
-        line-height: 1.6;
-    }
-
-    table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 13px;
-    }
-
-    th, td {
-        text-align: left;
-        padding: 9px 10px;
-        border-bottom: 1px solid var(--border);
-    }
-
-    th {
-        font-weight: 500;
-        font-size: 12px;
-        color: var(--text-sub);
-        background: #fafbfc;
-    }
-
-    tbody tr:last-child td { border-bottom: none; }
-
-    .tag {
-        display: inline-block;
-        font-size: 11px;
-        padding: 1px 7px;
-        border-radius: 999px;
-    }
-
-    .tag.ongoing { background: var(--red-bg); color: var(--red); }
-    .tag.resolved { background: var(--green-bg); color: var(--green); }
-    .tag.cleared { background: var(--blue-bg); color: var(--blue); }
-    .tag.interrupted { background: var(--gray-bg); color: var(--gray); }
-
-    .empty-row {
-        color: var(--text-hint);
-        font-size: 13px;
-        padding: 18px 4px;
-    }
-
-    footer {
-        margin-top: 18px;
-        font-size: 12px;
-        color: var(--text-hint);
-        line-height: 1.7;
-    }
-
-    /* ---------- 识别来源：上传面板 ---------- */
-    .hidden { display: none !important; }
-
-    .tabs {
-        display: flex;
-        gap: 6px;
-        margin-bottom: 14px;
-        border-bottom: 1px solid var(--border);
-        padding-bottom: 0;
-    }
-
-    .tab {
-        border: none;
-        border-bottom: 2px solid transparent;
-        border-radius: 0;
-        background: transparent;
-        padding: 8px 14px;
-        margin-bottom: -1px;
-        color: var(--text-sub);
-        font-size: 13px;
-    }
-
-    .tab:hover { background: transparent; color: var(--text-main); }
-
-    .tab.active {
-        color: var(--blue);
-        border-bottom-color: var(--blue);
-        font-weight: 600;
-    }
-
-    .dropzone {
-        display: block;
-        border: 1.5px dashed #cfd3d9;
-        border-radius: 10px;
-        padding: 22px 18px;
-        text-align: center;
-        cursor: pointer;
-        background: #fbfcfd;
-        transition: border-color 0.15s, background 0.15s;
-    }
-
-    .dropzone:hover, .dropzone.dragover {
-        border-color: var(--blue);
-        background: var(--blue-bg);
-    }
-
-    .dropzone .dz-main {
-        font-size: 14px;
-        color: var(--text-main);
-        margin-bottom: 4px;
-    }
-
-    .dropzone .dz-sub {
-        font-size: 12px;
-        color: var(--text-hint);
-    }
-
-    .dropzone.picked { border-style: solid; border-color: #b8d4ee; background: var(--blue-bg); }
-
-    .row {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: flex-end;
-        gap: 12px;
-        margin-top: 14px;
-    }
-
-    .field {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        font-size: 12px;
-        color: var(--text-sub);
-    }
-
-    select {
-        font-family: inherit;
-        font-size: 13px;
-        padding: 7px 10px;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        background: var(--bg-card);
-        color: var(--text-main);
-        max-width: 320px;
-    }
-
-    .status {
-        font-size: 12px;
-        color: var(--text-sub);
-        align-self: center;
-        line-height: 1.5;
-    }
-
-    .status.error { color: var(--red); }
-    .status.ok { color: var(--green); }
-
-    .progress { margin-top: 14px; }
-
-    .progress-track {
-        height: 8px;
-        border-radius: 999px;
-        background: #eceef1;
-        overflow: hidden;
-    }
-
-    .progress-bar {
-        height: 100%;
-        width: 0%;
-        background: var(--blue);
-        border-radius: 999px;
-        transition: width 0.3s ease;
-    }
-
-    .progress-text {
-        margin-top: 8px;
-        font-size: 12px;
-        color: var(--text-sub);
-        line-height: 1.6;
-    }
-
-    .timeline {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        max-height: 260px;
-        overflow-y: auto;
-    }
-
-    .timeline .item {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        font-size: 12.5px;
-        padding: 7px 10px;
-        border-radius: 7px;
-        background: #fafbfc;
-        border: 1px solid var(--border);
-    }
-
-    .timeline .clock {
-        font-family: Consolas, "Courier New", monospace;
-        color: var(--text-hint);
-        font-size: 12px;
-        flex-shrink: 0;
-    }
-
-    .timeline .seat-id {
-        font-weight: 600;
-        flex-shrink: 0;
-    }
-
-    @media (max-width: 960px) {
-        .layout { grid-template-columns: minmax(0, 1fr); }
-        .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    }
+/* ============================================================
+   设计令牌 —— 全站唯一色彩来源，:root 之外不允许出现硬编码 hex
+   -fg = ink：文字 / 小图形通用（三态语义承载物一律用 -fg）
+   vivid 原色仅允许 >=48x48 实心填充（本页 0 处）
+   ============================================================ */
+:root{
+  --bg-sidebar:#EBE9E4; --bg-canvas:#F4F3F1; --bg-surface:#FFFFFF;
+  --bg-surface-sunken:#F7F6F4; --bg-hover:#F0EEEA; --bg-active:#E4E1DA;
+  --line:#DFDCD5; --line-strong:#C9C5BC; --line-inset:#EFEDE8;
+  --text-main:#23211E; --text-sub:#55534E; --text-hint:#6B6862; --text-invert:#FFFFFF;
+  --accent:#2D5B7C; --accent-hover:#244A66; --accent-active:#1C3B52;
+  --accent-soft:#E8EFF4; --accent-line:#B9CEDC;
+  --state-occupied:#1F9D6F; --state-occupied-fg:#1A7D5A; --state-occupied-bg:#E7F4EE; --state-occupied-line:#BEE0D0;
+  --state-object:#E0982A;  --state-object-fg:#8F5B12;  --state-object-bg:#FBF0DC;  --state-object-line:#EBD3A6;
+  --state-empty:#9C998F;   --state-empty-fg:#66645E;   --state-empty-bg:#F1EFEA;   --state-empty-line:#DEDBD2;
+  --danger:#B4443C; --danger-hover:#9C3830; --danger-bg:#FBEAE8; --danger-line:#EBC3BE;
+  --shadow-1:0 1px 2px rgba(35,33,30,.06);
+  --shadow-2:0 2px 8px rgba(35,33,30,.08),0 1px 2px rgba(35,33,30,.05);
+  --shadow-3:0 12px 32px rgba(35,33,30,.16),0 2px 8px rgba(35,33,30,.08);
+  --shadow-focus:0 0 0 3px rgba(45,91,124,.22);
+  --r-control:8px; --r-card:12px; --r-pill:999px;
+  --font-sans:-apple-system,"Segoe UI","Microsoft YaHei UI","Microsoft YaHei","PingFang SC","Hiragino Sans GB","Source Han Sans SC","Noto Sans CJK SC",sans-serif;
+  --font-num:"Consolas",ui-monospace,"SF Mono","Roboto Mono",monospace;
+}
+
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg-canvas); color:var(--text-main);
+  font-family:var(--font-sans); font-size:14px; line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+body.is-locked{overflow:hidden}
+button{font-family:inherit;font-size:inherit;color:inherit;border:0;background:none;padding:0;cursor:pointer;line-height:1.2}
+select{font-family:inherit;font-size:13px;color:var(--text-main);background:var(--bg-surface);
+  border:1px solid var(--line);border-radius:var(--r-control);height:28px;padding:0 6px;cursor:pointer}
+h1,h2,h3,p,ul,li,table{margin:0}
+ul{padding:0;list-style:none}
+table{border-collapse:collapse;width:100%}
+.num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:var(--r-control)}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0,0,0,0);white-space:nowrap;border:0}
+[hidden]{display:none !important}
+
+.skip-link{position:absolute;left:16px;top:10px;z-index:200;padding:8px 14px;
+  background:var(--bg-surface);color:var(--accent);font-size:13px;font-weight:600;
+  border-radius:var(--r-control);box-shadow:var(--shadow-2);transform:translateY(-200%)}
+.skip-link:focus{transform:translateY(0)}
+
+/* ============================== 壳层 ============================== */
+.app{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:100vh}
+
+/* ---------- 侧栏 ---------- */
+.sidebar{
+  position:sticky;top:0;height:100vh;overflow-y:auto;
+  padding:20px 16px;background:var(--bg-sidebar);
+  border-right:1px solid var(--line);
+  display:flex;flex-direction:column;gap:20px;
+}
+.brand{display:flex;align-items:center;gap:10px;min-width:0}
+.brand__mark{
+  width:32px;height:32px;flex:none;border-radius:var(--r-control);
+  background:var(--accent);color:var(--text-invert);
+  display:grid;place-items:center;
+}
+.brand__text{min-width:0;display:flex;flex-direction:column;line-height:1.3}
+.brand__name{font-size:14px;font-weight:600;letter-spacing:.01em;white-space:nowrap}
+.brand__sub{font-size:11px;color:var(--text-hint);letter-spacing:.08em;font-weight:500}
+
+.clock{
+  height:76px;flex:none;background:var(--bg-surface);border:1px solid var(--line);
+  border-radius:var(--r-card);padding:10px 12px;display:flex;flex-direction:column;justify-content:center;
+  box-shadow:var(--shadow-1);
+}
+.clock__label{font-size:11px;font-weight:600;color:var(--text-hint);letter-spacing:.08em}
+.clock__time{font-family:var(--font-num);font-size:21px;font-weight:600;line-height:1.2;
+  font-variant-numeric:tabular-nums;font-feature-settings:"tnum";letter-spacing:.01em}
+.clock__sec{display:inline-block;width:2ch;text-align:left}
+
+.nav{display:flex;flex-direction:column;gap:2px}
+.nav__group{font-size:11px;font-weight:600;color:var(--text-hint);letter-spacing:.08em;
+  margin:20px 0 8px;padding-left:12px}
+.nav__group:first-child{margin-top:0}
+.nav__item{
+  position:relative;display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;
+  border-radius:var(--r-control);font-size:14px;color:var(--text-sub);
+  transition:background-color 120ms,color 120ms;width:100%;text-align:left;
+}
+.nav__item svg{flex:none;width:18px;height:18px}
+.nav__item:hover{background:var(--bg-hover);color:var(--text-main)}
+.nav__item.is-active{background:var(--bg-surface);color:var(--accent);font-weight:600;box-shadow:var(--shadow-1)}
+.nav__item.is-active::before{
+  content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;
+  border-radius:2px;background:var(--accent);
+}
+.nav__label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nav__dot{width:6px;height:6px;border-radius:50%;background:var(--accent);margin-left:auto;flex:none}
+
+.sidebar__foot{margin-top:auto;padding-top:12px;border-top:1px solid var(--line);
+  font-size:12px;color:var(--text-hint);line-height:1.7}
+.sidebar__ver{font-family:var(--font-num);letter-spacing:.04em}
+
+/* ---------- 主区 ---------- */
+.main{
+  display:grid;grid-template-rows:auto minmax(340px,1fr) auto;gap:16px;
+  padding:24px 28px;min-width:0;
+}
+.main > *{min-width:0}
+
+/* ============================== 工具条（唯一按钮区） ============================== */
+.toolbar{
+  height:56px;display:flex;align-items:center;gap:16px;
+  padding:0 12px 0 16px;background:var(--bg-surface);
+  border-radius:var(--r-card);box-shadow:var(--shadow-1);
+}
+.segmented{
+  display:flex;align-items:center;gap:2px;flex:none;
+  background:var(--bg-surface-sunken);border-radius:var(--r-control);padding:3px;
+}
+.seg-btn{
+  height:28px;padding:0 12px;border-radius:6px;font-size:13px;color:var(--text-sub);
+  transition:background-color 120ms,color 120ms;white-space:nowrap;
+}
+.seg-btn:hover{color:var(--text-main)}
+.seg-btn[aria-selected="true"]{background:var(--bg-surface);color:var(--text-main);
+  font-weight:600;box-shadow:var(--shadow-1)}
+
+.toolbar__mid{flex:1;min-width:0;display:flex;align-items:center;gap:10px;overflow:hidden}
+.toolbar__text{
+  flex:1;min-width:0;font-size:13px;color:var(--text-sub);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  display:flex;align-items:center;gap:6px;
+}
+.toolbar__text.is-error{color:var(--danger)}
+.toolbar__text svg{flex:none;width:14px;height:14px}
+.toolbar__opts{display:flex;align-items:center;gap:6px;flex:none}
+.toolbar__file{
+  font-size:12px;color:var(--text-hint);max-width:180px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;background:var(--bg-surface-sunken);
+  border-radius:var(--r-pill);padding:3px 10px;flex:none;
+}
+.linkish{font-size:13px;color:var(--accent);font-weight:600;text-decoration:underline;
+  text-underline-offset:2px;flex:none}
+.linkish:hover{color:var(--accent-hover)}
+
+.toolbar__actions{display:flex;align-items:center;gap:8px;flex:none}
+.btn{
+  height:36px;padding:0 16px;border-radius:var(--r-control);font-size:13px;font-weight:600;
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  transition:background-color 120ms,color 120ms,opacity 120ms;white-space:nowrap;
+}
+.btn--primary{background:var(--accent);color:var(--text-invert);min-width:112px}
+.btn--primary:hover{background:var(--accent-hover)}
+.btn--primary:active{background:var(--accent-active)}
+.btn--primary:disabled{opacity:.45;cursor:default}
+.btn--ghost{background:var(--bg-surface);color:var(--text-sub);border:1px solid var(--line)}
+.btn--ghost:hover{background:var(--bg-hover);color:var(--text-main)}
+.btn--danger{background:transparent;color:var(--danger);border:1px solid var(--danger-line)}
+.btn--danger:hover{background:var(--danger-bg);color:var(--danger-hover)}
+.iconbtn{
+  width:32px;height:32px;border-radius:var(--r-control);display:grid;place-items:center;
+  color:var(--text-sub);transition:background-color 120ms,color 120ms;
+}
+.iconbtn:hover{background:var(--bg-hover);color:var(--text-main)}
+.iconbtn svg{width:18px;height:18px}
+.spinner{width:14px;height:14px;flex:none;animation:spin 900ms linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner--static{animation:none}
+
+/* ============================== 视图区 ============================== */
+.viewport{
+  position:relative;display:grid;place-items:center;overflow:hidden;
+  background:var(--bg-surface-sunken);border:1px solid var(--line);
+  border-radius:var(--r-card);padding:12px;
+}
+.viewport.is-dragover{box-shadow:inset 0 0 0 2px var(--accent);background:var(--accent-soft)}
+.viewport__progress{
+  position:absolute;top:0;left:0;right:0;height:2px;overflow:hidden;
+  background:var(--accent-soft);z-index:2;
+}
+.viewport__progress i{display:block;height:100%;width:40%;background:var(--accent);
+  animation:indeterminate 1100ms ease-in-out infinite}
+@keyframes indeterminate{0%{transform:translateX(-110%)}100%{transform:translateX(360%)}}
+
+/* 空态（要求 4：居中标题） */
+.dropzone{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:12px;padding:24px;border-radius:var(--r-card);cursor:pointer;
+  text-align:center;max-width:560px;
+}
+.dropzone__icon{color:var(--text-hint);display:block}
+.dropzone__title{
+  font-size:22px;font-weight:600;line-height:1.35;letter-spacing:.02em;
+  color:var(--text-main);max-width:420px;
+}
+.dropzone__sub{font-size:13px;color:var(--text-sub)}
+.dropzone__meta{font-size:12px;color:var(--text-hint)}
+.dropzone:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.dropzone input[type="file"]{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
+
+/* 记录页说明态 */
+.viewport__info{display:flex;flex-direction:column;align-items:center;gap:12px;
+  text-align:center;padding:24px;max-width:560px}
+.viewport__info svg{color:var(--text-hint)}
+.info__title{font-size:22px;font-weight:600;line-height:1.35;letter-spacing:.02em}
+.info__sub{font-size:13px;color:var(--text-sub);max-width:440px}
+.info__meta{font-size:12px;color:var(--text-hint)}
+
+/* 有图 */
+/* 有图：绝对定高 + 绝对定位图片，保证 contain 不被裁切 */
+.viewport__stage{position:absolute;inset:12px;display:flex;flex-direction:column;gap:8px}
+.viewport__zoom{
+  position:relative;flex:1;min-height:0;width:100%;
+  border-radius:var(--r-control);cursor:zoom-in;overflow:hidden;
+}
+.viewport__zoom img{
+  position:absolute;inset:0;margin:auto;max-width:100%;max-height:100%;
+  object-fit:contain;border-radius:var(--r-control);
+  box-shadow:0 0 0 1px rgba(35,33,30,.06);
+}
+.viewport__hint{
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  background:rgba(28,26,23,.72);color:var(--text-invert);font-size:12px;
+  border-radius:var(--r-pill);padding:6px 12px;white-space:nowrap;
+  opacity:0;pointer-events:none;transition:opacity 120ms;line-height:1.2;
+}
+.viewport__zoom:hover .viewport__hint,
+.viewport__zoom:focus-visible .viewport__hint{opacity:1}
+.viewport__caption{height:28px;display:flex;align-items:center;justify-content:center;
+  font-size:12px;color:var(--text-hint);width:100%;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+
+/* ============================== 结果区 ============================== */
+.results{height:clamp(240px,32vh,360px);min-height:0;display:grid;
+  grid-template-columns:minmax(0,1fr)}
+.results > *{min-width:0;min-height:0}
+
+/* ---------- 摘要 + 列表 ---------- */
+.seats{display:grid;grid-template-columns:268px minmax(0,1fr);gap:16px;height:100%}
+.summary{
+  background:var(--bg-surface-sunken);border-radius:var(--r-control);
+  padding:12px;display:flex;flex-direction:column;overflow:auto;
+}
+.summary__label{font-size:12px;color:var(--text-sub);line-height:1.4}
+.summary.is-busy .summary__total,
+.summary.is-busy .summary__rows{opacity:.6;transition:opacity 120ms}
+.summary__total{display:flex;align-items:baseline;gap:4px;margin-top:2px}
+.summary__total b{font-family:var(--font-num);font-size:28px;font-weight:600;line-height:1.1;
+  font-variant-numeric:tabular-nums;letter-spacing:.01em}
+.summary__unit{font-size:12px;color:var(--text-sub)}
+
+/* 构成条：空态高度 0 不渲染，有数据过渡到 6px */
+.composition-bar{
+  height:0;opacity:0;overflow:hidden;display:flex;
+  border-radius:var(--r-pill);background:var(--bg-active);
+  transition:height 200ms,opacity 200ms,margin 200ms;
+}
+[data-has-data="true"] .composition-bar{height:6px;opacity:1;margin-block:12px}
+.composition-bar span{height:100%;display:block}
+.composition-bar span + span{border-right:2px solid var(--bg-surface)}
+.comp--occupied{background:var(--state-occupied-fg)}
+.comp--object{background:var(--state-object-fg)}
+.comp--empty{background:var(--state-empty-fg)}
+
+.summary__hint{font-size:13px;color:var(--text-hint);margin-top:4px;line-height:1.5}
+[data-has-data="true"] .summary__hint{display:none}
+.summary__rows{display:flex;flex-direction:column;margin-top:8px}
+.srow{display:grid;grid-template-columns:8px 1fr auto auto;align-items:center;
+  gap:8px;height:28px}
+.srow .dot{width:8px;height:8px;border-radius:50%}
+.srow__label{font-size:13px;color:var(--text-sub)}
+.srow__num{font-family:var(--font-num);font-size:18px;font-weight:600;line-height:1.2;
+  text-align:right;font-variant-numeric:tabular-nums}
+.srow__unit{font-size:12px;color:var(--text-hint);padding-left:2px}
+.srow--occupied .dot{background:var(--state-occupied-fg)}
+.srow--occupied .srow__num{color:var(--state-occupied-fg)}
+.srow--object .dot{background:var(--state-object-fg)}
+.srow--object .srow__num{color:var(--state-object-fg)}
+.srow--empty .dot{background:var(--state-empty-fg)}
+.srow--empty .srow__num{color:var(--state-empty-fg)}
+.summary__extra{font-size:12px;color:var(--danger);padding-left:16px;margin-top:4px;line-height:1.5}
+.summary__absent{font-size:12px;color:var(--text-hint);margin-top:auto;padding-top:8px;line-height:1.5}
+
+/* ---------- 列表 ---------- */
+.seatlist{
+  position:relative;display:grid;grid-template-rows:auto auto minmax(0,1fr);
+  background:var(--bg-surface);border:1px solid var(--line);
+  border-radius:var(--r-card);overflow:hidden;
+}
+.seatlist__head{
+  height:32px;display:flex;align-items:center;gap:8px;padding:0 12px;
+  background:var(--bg-surface-sunken);border-bottom:1px solid var(--line);
+  font-size:12px;color:var(--text-sub);position:sticky;top:0;z-index:2;
+}
+.seatlist__absent{color:var(--text-hint)}
+.seatlist__time{margin-left:auto;font-family:var(--font-num);font-size:12px;color:var(--text-hint);
+  white-space:nowrap}
+.seatlist__time.is-stale{color:var(--state-object-fg);font-weight:600}
+
+.chips{display:flex;align-items:center;gap:6px;padding:4px 0 4px 12px;overflow-x:auto;
+  border-bottom:1px solid var(--line-inset);flex-wrap:nowrap}
+.chip{
+  height:28px;border-radius:var(--r-pill);padding:0 10px;font-size:12px;font-weight:500;
+  line-height:1.2;background:var(--bg-active);color:var(--text-sub);
+  display:inline-flex;align-items:center;gap:6px;white-space:nowrap;
+  transition:background-color 120ms,color 120ms;flex:none;
+}
+.chip:hover:not(:disabled){color:var(--text-main)}
+.chip:disabled{opacity:.5;cursor:default}
+.chip b{font-family:var(--font-num);font-size:12px;font-weight:500;color:var(--text-hint);
+  font-variant-numeric:tabular-nums}
+.chip[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);
+  box-shadow:inset 0 0 0 1px var(--accent-line);font-weight:600}
+.chip[aria-pressed="true"] b{color:var(--accent)}
+.chip[data-filter="OCCUPIED"][aria-pressed="true"]{background:var(--state-occupied-bg);
+  color:var(--state-occupied-fg);box-shadow:inset 0 0 0 1px var(--state-occupied-line)}
+.chip[data-filter="OCCUPIED"][aria-pressed="true"] b{color:var(--state-occupied-fg)}
+.chip[data-filter="OBJECT_ONLY"][aria-pressed="true"]{background:var(--state-object-bg);
+  color:var(--state-object-fg);box-shadow:inset 0 0 0 1px var(--state-object-line)}
+.chip[data-filter="OBJECT_ONLY"][aria-pressed="true"] b{color:var(--state-object-fg)}
+.chip[data-filter="EMPTY"][aria-pressed="true"]{background:var(--state-empty-bg);
+  color:var(--state-empty-fg);box-shadow:inset 0 0 0 1px var(--state-empty-line)}
+.chip[data-filter="EMPTY"][aria-pressed="true"] b{color:var(--state-empty-fg)}
+
+.seatlist__scroll{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;
+  position:relative;padding-bottom:2px}
+.seatlist__scroll:focus-visible{outline-offset:-2px}
+
+.seatrow{
+  position:relative;height:44px;display:grid;
+  grid-template-columns:48px 96px minmax(0,1fr) auto;gap:8px;align-items:center;
+  padding:0 12px 0 14px;border-bottom:1px solid var(--line-inset);
+  transition:background-color 120ms;
+}
+.seatlist.is-dense .seatrow{height:36px}
+.seatrow:hover{background:var(--bg-surface-sunken)}
+.seatrow::before{
+  content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:2px;
+  background:var(--state-empty-fg);
+}
+.seatrow--OCCUPIED::before{background:var(--state-occupied-fg)}
+.seatrow--OBJECT_ONLY::before{background:var(--state-object-fg)}
+.seatrow--EMPTY::before{background:var(--state-empty-fg)}
+.seatrow--VIOLATION::before{background:var(--danger)}
+.seatrow--ABSENT{opacity:.55}
+.seatrow--ABSENT::before{top:0;bottom:0;width:0;border-radius:0;background:none;
+  border-left:3px dashed var(--state-empty-fg)}
+.seatrow__id{font-family:var(--font-num);font-size:14px;font-weight:600;line-height:1.2;
+  font-variant-numeric:tabular-nums}
+.seatrow__name{font-size:13px;color:var(--text-sub);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.seatrow__desc{font-size:13px;color:var(--text-sub);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.seatrow__desc em{font-style:normal;color:var(--danger);font-weight:600}
+.seatrow__state{display:inline-flex;align-items:center;gap:6px;justify-self:end}
+.vdot{width:6px;height:6px;border-radius:50%;background:var(--danger);
+  box-shadow:0 0 0 2px var(--bg-surface);flex:none}
+.pill{
+  font-size:12px;font-weight:500;line-height:1.2;padding:2px 8px;border-radius:var(--r-pill);
+  min-width:64px;text-align:center;white-space:nowrap;
+}
+.pill--occupied{background:var(--state-occupied-bg);color:var(--state-occupied-fg);
+  border:1px solid var(--state-occupied-line)}
+.pill--object{background:var(--state-object-bg);color:var(--state-object-fg);
+  border:1px solid var(--state-object-line)}
+.pill--empty{background:var(--state-empty-bg);color:var(--state-empty-fg);
+  border:1px solid var(--state-empty-line)}
+.pill--danger{background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger-line)}
+
+.list-empty{padding:20px 16px;display:flex;flex-direction:column;gap:4px}
+.list-empty__t{font-size:13px;font-weight:600;color:var(--text-sub)}
+.list-empty__d{font-size:13px;color:var(--text-hint)}
+.list-note{margin:8px 12px;background:var(--bg-surface-sunken);border-radius:var(--r-control);
+  padding:8px 12px;font-size:12px;color:var(--text-sub);line-height:1.6}
+
+.seatlist__fade{position:absolute;left:0;right:0;bottom:0;height:24px;pointer-events:none;
+  background:linear-gradient(to bottom,transparent,var(--bg-surface))}
+
+/* ---------- 错误态（L3） ---------- */
+.fail{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;height:100%;background:var(--bg-surface-sunken);
+  border-radius:var(--r-card);padding:24px;text-align:center}
+.fail svg{color:var(--state-object-fg)}
+.fail__text{font-size:13px;color:var(--text-sub);max-width:420px}
+
+/* ---------- 记录页整宽面板 ---------- */
+.pane{display:grid;grid-template-rows:auto minmax(0,1fr);height:100%;
+  background:var(--bg-surface);border:1px solid var(--line);border-radius:var(--r-card);
+  overflow:hidden}
+.pane__head{height:32px;display:flex;align-items:center;gap:8px;padding:0 14px;
+  background:var(--bg-surface-sunken);border-bottom:1px solid var(--line);
+  font-size:12px;color:var(--text-sub)}
+.pane__src{margin-left:auto;font-size:12px;color:var(--text-hint);background:var(--bg-surface);
+  border:1px solid var(--line);border-radius:var(--r-pill);padding:2px 10px;line-height:1.2}
+.pane__scroll{overflow:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.pane__scroll:focus-visible{outline-offset:-2px}
+
+.table th{font-size:12px;font-weight:600;color:var(--text-sub);text-align:left;
+  padding:6px 14px;background:var(--bg-surface);position:sticky;top:0;
+  border-bottom:1px solid var(--line);white-space:nowrap;z-index:1}
+.table td{font-size:13px;color:var(--text-sub);padding:8px 14px;
+  border-bottom:1px solid var(--line-inset);white-space:nowrap}
+.table td.num,.table th.num{font-family:var(--font-num);font-variant-numeric:tabular-nums}
+.table td:first-child{color:var(--text-main);font-weight:600;font-family:var(--font-num)}
+.table tr:last-child td{border-bottom:0}
+.tag{font-size:12px;font-weight:500;line-height:1.2;padding:2px 8px;border-radius:var(--r-pill);
+  border:1px solid transparent;display:inline-block}
+.tag--ongoing{background:var(--danger-bg);color:var(--danger);border-color:var(--danger-line)}
+.tag--resolved{background:var(--state-occupied-bg);color:var(--state-occupied-fg);
+  border-color:var(--state-occupied-line)}
+.tag--cleared{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-line)}
+.tag--interrupted{background:var(--state-empty-bg);color:var(--state-empty-fg);
+  border-color:var(--state-empty-line)}
+
+.tl{display:flex;flex-direction:column}
+.tl__item{display:grid;grid-template-columns:64px 48px minmax(0,1fr) auto;gap:10px;
+  align-items:center;padding:8px 14px;border-bottom:1px solid var(--line-inset);font-size:13px}
+.tl__clock{font-family:var(--font-num);font-size:12px;color:var(--text-hint);
+  font-variant-numeric:tabular-nums}
+.tl__seat{font-family:var(--font-num);font-weight:600;font-size:13px}
+.tl__flow{color:var(--text-sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tl__v{font-size:12px;color:var(--text-hint);font-variant-numeric:tabular-nums}
+
+/* ============================== 放大查看 ============================== */
+.lightbox{
+  position:fixed;inset:0;z-index:100;background:rgba(28,26,23,.82);
+  -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);
+  display:grid;place-items:center;padding:40px;
+}
+.lightbox[hidden]{display:none !important}
+.lightbox__stage{position:relative;display:grid;place-items:center;width:100%;height:100%;
+  overflow:hidden}
+.lightbox__img{max-width:92vw;max-height:86vh;object-fit:contain;will-change:transform;
+  transition:transform 120ms ease-out;user-select:none;-webkit-user-drag:none}
+.lightbox.is-zoomed .lightbox__img{cursor:grab}
+.lightbox.is-panning .lightbox__img{cursor:grabbing;transition:none}
+.lightbox__close{
+  position:absolute;top:24px;right:24px;width:36px;height:36px;border-radius:var(--r-control);
+  background:rgba(255,255,255,.12);color:var(--text-invert);display:grid;place-items:center;
+  transition:background-color 120ms;z-index:3;
+}
+.lightbox__close:hover{background:rgba(255,255,255,.20)}
+.lightbox__info{
+  position:absolute;top:24px;left:24px;max-width:calc(100vw - 140px);
+  font-size:12px;color:rgba(255,255,255,.8);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;z-index:3;
+}
+.lightbox__foot{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);
+  font-size:12px;color:rgba(255,255,255,.6);white-space:nowrap;z-index:3}
+.lightbox.is-open .lightbox__stage{animation:lbIn 180ms cubic-bezier(.2,.8,.2,1)}
+@keyframes lbIn{from{opacity:0;transform:scale(.985)}to{opacity:1;transform:scale(1)}}
+
+/* ============================== 断点 ============================== */
+@media (min-width:1440px){
+  .app{grid-template-columns:264px minmax(0,1fr)}
+  .main{padding:28px 32px;gap:20px}
+}
+@media (min-width:1600px){
+  .main > .toolbar,.main > .viewport,.main > .results{max-width:1760px;width:100%;margin-inline:auto}
+}
+@media (max-width:1023px){
+  .app{grid-template-columns:72px minmax(0,1fr)}
+  .main{padding:16px 20px;gap:12px;grid-template-rows:auto minmax(300px,1fr) auto}
+  .sidebar{padding:16px 8px;align-items:center;gap:12px;overflow:visible}
+  .brand{justify-content:center}
+  .brand__text{display:none}
+  .clock{width:56px;height:56px;padding:0;align-items:center;text-align:center}
+  .clock__label,.clock__time span{display:none}
+  .clock__time{font-size:13px;line-height:1.15;display:flex;flex-direction:column}
+  .clock__hh{font-size:13px}
+  .nav{width:100%;align-items:center;gap:4px}
+  .nav__group{display:none}
+  .nav__item{width:44px;height:44px;padding:0;justify-content:center;position:relative}
+  .nav__item svg{width:20px;height:20px}
+  .nav__label{display:none}
+  .nav__item::after{
+    content:attr(data-label);position:absolute;left:52px;top:50%;transform:translateY(-50%);
+    background:var(--text-main);color:var(--text-invert);font-size:12px;line-height:1.2;
+    padding:6px 10px;border-radius:var(--r-control);white-space:nowrap;
+    opacity:0;pointer-events:none;transition:opacity 120ms;transition-delay:0ms;z-index:60;
+  }
+  .nav__item:hover::after,.nav__item:focus-visible::after{
+    opacity:1;transition-delay:200ms
+  }
+  .sidebar__foot{display:none}
+  .toolbar{height:auto;min-height:56px;flex-wrap:wrap;gap:8px;padding:10px 12px}
+  .toolbar__actions{flex-wrap:wrap}
+  .results{height:clamp(240px,32vh,360px)}
+  .seats{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);gap:8px}
+  .summary{flex-direction:row;align-items:center;gap:16px;height:48px;padding:0 12px;
+    overflow-x:auto;overflow-y:hidden;white-space:nowrap}
+  .summary__label,.summary__unit,.srow__unit{display:none}
+  .summary__total{margin:0}
+  .summary__total b{font-size:20px}
+  .composition-bar,.summary__hint,.summary__extra,.summary__absent{display:none !important}
+  .summary__rows{flex-direction:row;align-items:center;gap:14px;margin:0}
+  .srow{height:auto;gap:6px}
+  .srow__num{font-size:15px}
+  .seatlist__head{height:28px}
+  .chips{padding:8px 0 8px 12px}
+  .seatrow{height:42px}
+  .seatlist.is-dense .seatrow{height:42px}
+  .seatrow{grid-template-columns:44px minmax(0,1fr) auto;gap:8px}
+  .seatrow__name{display:none}
+  .lightbox{padding:16px}
+  .lightbox__info{top:14px;left:14px;max-width:calc(100vw - 100px)}
+  .lightbox__close{top:12px;right:12px}
+}
+
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:1ms !important;animation-iteration-count:1 !important;
+    transition-duration:1ms !important}
+  .spinner{animation:none}
+  .viewport__progress i{animation:none;width:100%;opacity:.55}
+  .lightbox.is-open .lightbox__stage{animation:none}
+  .lightbox{-webkit-backdrop-filter:none;backdrop-filter:none;background:rgba(28,26,23,.92)}
+}
 </style>
 </head>
 <body>
+<a class="skip-link" href="#main">跳到主要内容</a>
 
-<header>
-    <div>
-        <h1>自习室座位占用监测</h1>
-        <div class="subtitle">
-            三态识别（有人 / 有物无人 / 空置）· 离座满 <span id="threshold">30</span> 分钟判定为占座 · 午休 12:00–13:30 不计时
+<div class="app" id="app">
+  <!-- ======================= 侧栏 ======================= -->
+  <aside class="sidebar" id="sidebar" aria-label="主导航">
+    <div class="brand">
+      <span class="brand__mark" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 10V7a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v3"/>
+          <path d="M4 10h16v6H4z"/>
+          <path d="M6 16v3M18 16v3"/>
+        </svg>
+      </span>
+      <span class="brand__text">
+        <span class="brand__name">座位监测</span>
+        <span class="brand__sub">SEAT MONITOR</span>
+      </span>
+    </div>
+
+    <!-- 时钟（要求 3） -->
+    <div class="clock" role="timer" aria-live="off" aria-label="当前时间">
+      <span class="clock__label">当前时间</span>
+      <span class="clock__time num" id="clock-time">
+        <time id="clock-iso" datetime="">
+          <span class="clock__hh" id="clock-hm">--:--</span><span class="clock__sec" id="clock-s">:--</span>
+        </time>
+      </span>
+    </div>
+
+    <nav class="nav" aria-label="页面切换">
+      <div class="nav__group">检测</div>
+      <button class="nav__item is-active" data-view="image" data-label="图片检测"
+              aria-current="page" title="图片检测">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="16" rx="2"/>
+          <circle cx="8.5" cy="9.5" r="1.5"/>
+          <path d="M4 17l5-4.5 4 3.5 3-2.5 4 3.5"/>
+        </svg>
+        <span class="nav__label">图片检测</span>
+      </button>
+      <button class="nav__item" data-view="video" data-label="视频检测" title="视频检测">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="2" y="6" width="13" height="12" rx="2"/>
+          <path d="M15 10.5l6-3v9l-6-3z"/>
+        </svg>
+        <span class="nav__label">视频检测</span>
+        <span class="nav__dot" id="nav-video-dot" hidden aria-hidden="true"></span>
+      </button>
+      <button class="nav__item" data-view="live" data-label="实时看板" title="实时看板">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"/>
+          <path d="M7 13h2.5l1.6-4 2 8 1.4-4H17"/>
+        </svg>
+        <span class="nav__label">实时看板</span>
+      </button>
+
+      <div class="nav__group">记录</div>
+      <button class="nav__item" data-view="events" data-label="占座事件" title="占座事件">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 6h11M9 12h11M9 18h11"/>
+          <circle cx="4.5" cy="6" r="1.2"/>
+          <circle cx="4.5" cy="12" r="1.2"/>
+          <circle cx="4.5" cy="18" r="1.2"/>
+        </svg>
+        <span class="nav__label">占座事件</span>
+      </button>
+      <button class="nav__item" data-view="timeline" data-label="时间线" title="时间线">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="8.5"/>
+          <path d="M12 7.5V12l3 2"/>
+        </svg>
+        <span class="nav__label">时间线</span>
+      </button>
+    </nav>
+
+    <div class="sidebar__foot">
+      阈值 30 分钟 · 午休不计时<br>
+      <span class="sidebar__ver">v2.0</span>
+    </div>
+  </aside>
+
+  <!-- ======================= 主区 ======================= -->
+  <main class="main" id="main" tabindex="-1">
+    <!-- 工具条：全站唯一按钮区 -->
+    <div class="toolbar" role="group" aria-label="检测操作">
+      <div class="segmented" role="tablist" aria-label="检测方式">
+        <button class="seg-btn" role="tab" data-view="image" aria-selected="true" tabindex="0">图片</button>
+        <button class="seg-btn" role="tab" data-view="video" aria-selected="false" tabindex="-1">视频</button>
+        <button class="seg-btn" role="tab" data-view="live" aria-selected="false" tabindex="-1">看板</button>
+      </div>
+
+      <div class="toolbar__mid">
+        <span class="toolbar__text" id="toolbar-text" role="status" aria-live="polite" aria-atomic="true"></span>
+        <div class="toolbar__opts" id="video-opts" hidden>
+          <select id="video-scale" aria-label="时间倍率" title="视频内 1 秒按几秒计入占座计时">
+            <option value="60" selected>60 倍</option>
+            <option value="120">120 倍</option>
+            <option value="10">10 倍</option>
+            <option value="1">1 倍</option>
+          </select>
+          <select id="video-sample" aria-label="采样间隔" title="每几秒取一帧识别">
+            <option value="1" selected>1 秒/帧</option>
+            <option value="0.5">0.5 秒/帧</option>
+            <option value="2">2 秒/帧</option>
+          </select>
         </div>
+        <span class="toolbar__file" id="toolbar-file" hidden></span>
+      </div>
+
+      <div class="toolbar__actions">
+        <button class="iconbtn" id="btn-pause" title="暂停刷新" aria-label="暂停刷新" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 5v14M15 5v14"/>
+          </svg>
+        </button>
+        <button class="btn btn--ghost" id="btn-reset" hidden>重置</button>
+        <button class="btn btn--danger" id="btn-cancel" hidden>取消处理</button>
+        <button class="btn btn--primary" id="btn-primary">开始识别</button>
+      </div>
     </div>
-    <div class="header-right">
-        <div class="stamp">
-            数据更新：<strong id="updated">—</strong><br>
-            自动刷新：<strong id="auto-state">开启</strong>
+
+    <!-- 视图区（要求 2 / 4） -->
+    <section class="viewport" id="viewport" aria-label="检测画面">
+      <div class="viewport__progress" id="viewport-progress" role="progressbar"
+           aria-label="识别中" aria-valuetext="识别中" hidden><i></i></div>
+
+      <!-- 空态：整块是 label，居中标题 -->
+      <label class="dropzone" id="dropzone" for="file-input">
+        <input type="file" id="file-input" accept="image/*">
+        <svg class="dropzone__icon" id="dz-icon-image" width="48" height="48" viewBox="0 0 48 48"
+             fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+             stroke-linejoin="round" aria-hidden="true">
+          <rect x="7" y="12" width="34" height="24" rx="3"/>
+          <circle cx="16" cy="20" r="2.5"/>
+          <path d="M8.5 32l9-8 7 6 5.5-4.5 9 7"/>
+        </svg>
+        <svg class="dropzone__icon" id="dz-icon-video" width="48" height="48" viewBox="0 0 48 48"
+             fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+             stroke-linejoin="round" aria-hidden="true" hidden>
+          <rect x="7" y="13" width="26" height="22" rx="3"/>
+          <path d="M33 20.5l8-4v15l-8-4z"/>
+          <path d="M18 19.5l7 4.5-7 4.5z"/>
+        </svg>
+        <h1 class="dropzone__title">自习室座位占座情况检测系统</h1>
+        <p class="dropzone__sub" id="dz-sub">点击选择图片，或把图片拖到这里</p>
+        <p class="dropzone__meta" id="dz-meta">JPG / PNG / WebP / BMP · 单张 ≤ 25 MB</p>
+      </label>
+
+      <!-- 记录页说明态 -->
+      <div class="viewport__info" id="viewport-info" hidden>
+        <svg id="info-icon-events" width="48" height="48" viewBox="0 0 48 48" fill="none"
+             stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+             stroke-linejoin="round" aria-hidden="true">
+          <path d="M17 12h22M17 24h22M17 36h22"/>
+          <circle cx="9" cy="12" r="2.2"/>
+          <circle cx="9" cy="24" r="2.2"/>
+          <circle cx="9" cy="36" r="2.2"/>
+        </svg>
+        <svg id="info-icon-timeline" width="48" height="48" viewBox="0 0 48 48" fill="none"
+             stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+             stroke-linejoin="round" aria-hidden="true" hidden>
+          <circle cx="24" cy="24" r="17"/>
+          <path d="M24 14v10l7 4.5"/>
+        </svg>
+        <h2 class="info__title" id="info-title"></h2>
+        <p class="info__sub" id="info-sub"></p>
+        <p class="info__meta" id="info-meta"></p>
+      </div>
+
+      <!-- 有图 -->
+      <div class="viewport__stage" id="viewport-stage" hidden>
+        <button class="viewport__zoom" id="zoom-btn" type="button" aria-label="放大查看检测画面">
+          <img id="frame" alt="检测画面">
+          <span class="viewport__hint" id="zoom-hint">点击放大</span>
+        </button>
+        <div class="viewport__caption" id="viewport-caption"></div>
+      </div>
+    </section>
+
+    <!-- 结果区（要求 5） -->
+    <section class="results" id="results" aria-label="检测结果">
+      <!-- 摘要 + 座位列表 -->
+      <div class="seats" id="pane-seats">
+        <div class="summary" id="summary" data-has-data="false">
+          <div class="summary__label">座位总数</div>
+          <div class="summary__total"><b id="sum-total">—</b><span class="summary__unit">座</span></div>
+          <div class="composition-bar" id="composition" aria-hidden="true"></div>
+          <p class="summary__hint">上传图片后显示三态分布</p>
+          <ul class="summary__rows">
+            <li class="srow srow--occupied">
+              <span class="dot" aria-hidden="true"></span>
+              <span class="srow__label">有人在座</span>
+              <span class="srow__num" id="sum-occupied">—</span>
+              <span class="srow__unit">座</span>
+            </li>
+            <li class="srow srow--object">
+              <span class="dot" aria-hidden="true"></span>
+              <span class="srow__label">有物无人</span>
+              <span class="srow__num" id="sum-object">—</span>
+              <span class="srow__unit">座</span>
+            </li>
+            <li class="srow srow--empty">
+              <span class="dot" aria-hidden="true"></span>
+              <span class="srow__label">空座</span>
+              <span class="srow__num" id="sum-empty">—</span>
+              <span class="srow__unit">座</span>
+            </li>
+          </ul>
+          <div class="summary__extra" id="sum-violation" hidden>其中占座中 <span id="sum-violation-n">0</span> 座</div>
+          <div class="summary__absent" id="sum-absent" hidden></div>
         </div>
-        <button id="btn-auto">暂停刷新</button>
-        <button id="btn-detect" class="primary">立即检测</button>
-    </div>
-</header>
 
-<section class="stats">
-    <div class="stat occupied">
-        <div class="label">有人</div>
-        <div class="value"><span id="count-occupied">0</span> 座</div>
-    </div>
-    <div class="stat object">
-        <div class="label">有物无人</div>
-        <div class="value"><span id="count-object">0</span> 座</div>
-    </div>
-    <div class="stat violation">
-        <div class="label">占座中</div>
-        <div class="value"><span id="count-violation">0</span> 座</div>
-    </div>
-    <div class="stat empty">
-        <div class="label">空置</div>
-        <div class="value"><span id="count-empty">0</span> 座</div>
-    </div>
-</section>
-
-<section class="panel" style="margin-bottom:16px">
-    <h2>识别来源 <span class="hint" id="mode-hint">当前：团队数据库 / 演示底图</span></h2>
-
-    <div class="tabs">
-        <button class="tab active" data-mode="image">上传图片识别</button>
-        <button class="tab" data-mode="video">上传视频实时识别</button>
-        <button class="tab" data-mode="live">实时看板</button>
-    </div>
-
-    <div class="tab-pane" id="pane-image">
-        <label class="dropzone" id="drop-image">
-            <input type="file" id="file-image" accept="image/jpeg,image/png,image/webp,image/bmp" hidden>
-            <div class="dz-main">点击选择图片，或把图片拖到这里</div>
-            <div class="dz-sub">支持 JPG / PNG / WebP / BMP，单张不超过 25 MB</div>
-        </label>
-        <div class="row">
-            <button id="btn-run-image" class="primary" disabled>开始识别</button>
-            <span class="status" id="status-image">选择一张本机位拍摄的图片后开始</span>
+        <div class="seatlist" id="seatlist">
+          <div class="seatlist__head">
+            <span id="list-count">尚未检测</span>
+            <span class="seatlist__absent" id="list-absent" hidden></span>
+            <span class="seatlist__time" id="list-time"></span>
+          </div>
+          <div class="chips" id="chips" role="group" aria-label="按状态筛选座位">
+            <button class="chip" data-filter="ALL" aria-pressed="true">全部<b id="chip-all">0</b></button>
+            <button class="chip" data-filter="OCCUPIED" aria-pressed="false" disabled>有人<b id="chip-occupied">0</b></button>
+            <button class="chip" data-filter="OBJECT_ONLY" aria-pressed="false" disabled>有物无人<b id="chip-object">0</b></button>
+            <button class="chip" data-filter="EMPTY" aria-pressed="false" disabled>空座<b id="chip-empty">0</b></button>
+          </div>
+          <div class="seatlist__scroll" id="seat-scroll" tabindex="0" role="region"
+               aria-label="座位状态列表">
+            <div class="list-empty" id="list-empty">
+              <span class="list-empty__t">尚未检测</span>
+              <span class="list-empty__d">选择图片并点「开始识别」后，这里会按编号列出每个座位的状态。</span>
+            </div>
+            <div id="rows"></div>
+            <div id="list-note" hidden></div>
+          </div>
+          <div class="seatlist__fade" id="list-fade" hidden></div>
         </div>
-    </div>
+      </div>
 
-    <div class="tab-pane hidden" id="pane-video">
-        <label class="dropzone" id="drop-video">
-            <input type="file" id="file-video" accept="video/mp4,video/x-msvideo,video/quicktime,video/x-matroska,video/webm" hidden>
-            <div class="dz-main">点击选择视频，或把视频拖到这里</div>
-            <div class="dz-sub">支持 MP4 / AVI / MOV / MKV / WebM，单个不超过 300 MB</div>
-        </label>
-        <div class="row">
-            <label class="field">时间倍率
-                <select id="video-scale">
-                    <option value="60" selected>60 倍（1 秒 = 1 分钟，便于演示 30 分钟阈值）</option>
-                    <option value="120">120 倍（更快触发占座）</option>
-                    <option value="10">10 倍</option>
-                    <option value="1">1 倍（按视频真实时长计时）</option>
-                </select>
-            </label>
-            <label class="field">采样间隔
-                <select id="video-sample">
-                    <option value="1" selected>每 1 秒 1 帧（推荐）</option>
-                    <option value="0.5">每 0.5 秒 1 帧（更细，速度减半）</option>
-                    <option value="2">每 2 秒 1 帧（更快）</option>
-                </select>
-            </label>
-            <button id="btn-run-video" class="primary" disabled>开始处理</button>
-            <button id="btn-cancel-video" disabled>取消</button>
+      <!-- 占座事件（整宽表格，DB 只读） -->
+      <div class="pane" id="pane-events" hidden>
+        <div class="pane__head">
+          <span>占座事件 · 数据库最近 20 条</span>
+          <span class="pane__src" id="events-src">数据库 · 最近 20 条</span>
         </div>
-        <div class="progress hidden" id="video-progress">
-            <div class="progress-track"><div class="progress-bar" id="video-bar"></div></div>
-            <div class="progress-text" id="video-progress-text">等待开始</div>
+        <div class="pane__scroll" id="events-scroll" tabindex="0" role="region" aria-label="占座事件表格">
+          <table class="table">
+            <thead>
+              <tr>
+                <th scope="col">座位</th>
+                <th scope="col">开始时间</th>
+                <th scope="col">结束时间</th>
+                <th scope="col" class="num">持续</th>
+                <th scope="col" class="num">阈值</th>
+                <th scope="col">结局</th>
+              </tr>
+            </thead>
+            <tbody id="event-body"></tbody>
+          </table>
         </div>
-    </div>
-</section>
+      </div>
 
-<section class="layout">
-    <div class="panel">
-        <h2>座位状态分布 <span class="hint" id="seat-total">共 0 座</span></h2>
-        <div class="legend">
-            <span><i style="background:#1d9e75"></i>有人</span>
-            <span><i style="background:#ef9f27"></i>有物无人</span>
-            <span><i style="background:#e24b4a"></i>占座中（满 30 分钟）</span>
-            <span><i style="background:#b4b2a9"></i>空置</span>
+      <!-- 时间线（整宽列表，只来自视频任务） -->
+      <div class="pane" id="pane-timeline" hidden>
+        <div class="pane__head">
+          <span id="timeline-head">状态变化时间线</span>
+          <span class="pane__src" id="timeline-src">本次视频 · 只读</span>
         </div>
-        <div class="seat-grid" id="seat-grid"></div>
-    </div>
-
-    <div class="panel">
-        <h2>检测画面 <span class="hint">红框=人　灰框=物品</span></h2>
-        <div class="frame-wrap">
-            <img id="frame" src="/api/frame" alt="检测标注画面">
+        <div class="pane__scroll" id="timeline-scroll" tabindex="0" role="region" aria-label="状态变化时间线">
+          <div class="tl" id="timeline-list"></div>
         </div>
-        <div class="frame-note" id="frame-note">
-            点击「立即检测」运行一次识别；图像来自配置中的演示底图。
-        </div>
-    </div>
-</section>
+      </div>
 
-<section class="panel hidden" id="panel-timeline" style="margin-bottom:16px">
-    <h2>状态变化时间线 <span class="hint" id="timeline-count">等待视频识别</span></h2>
-    <div class="timeline" id="timeline-list">
-        <div class="empty-row">还没有状态切换记录。上传视频后，每次座位状态变化都会记录在这里。</div>
-    </div>
-</section>
+      <!-- L3 通道不可用 -->
+      <div class="fail" id="pane-error" hidden>
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 4.5L21 20H3z"/>
+          <path d="M12 10v4.5M12 17.2v.1"/>
+        </svg>
+        <p class="fail__text" id="fail-text">拿不到座位数据。确认后端已启动（uvicorn app.main:app），然后重试。</p>
+        <button class="linkish" id="fail-retry" type="button">重试</button>
+      </div>
+    </section>
+  </main>
+</div>
 
-<section class="panel">
-    <h2>占座事件记录 <span class="hint" id="event-count">最近 20 条</span></h2>
-    <table>
-        <thead>
-        <tr>
-            <th style="width:80px">座位</th>
-            <th style="width:150px">开始时间</th>
-            <th style="width:150px">结束时间</th>
-            <th style="width:100px">持续时长</th>
-            <th style="width:90px">阈值</th>
-            <th>结局</th>
-        </tr>
-        </thead>
-        <tbody id="event-body">
-        <tr><td colspan="6" class="empty-row">暂无占座事件。运行 <code>python scripts/track_stream.py</code> 或点击「立即检测」积累数据。</td></tr>
-        </tbody>
-    </table>
-</section>
+<!-- 放大查看遮罩 -->
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="查看检测画面" hidden>
+  <div class="lightbox__info" id="lightbox-info"></div>
+  <button class="lightbox__close" id="lightbox-close" type="button" aria-label="关闭">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M6 6l12 12M18 6L6 18"/>
+    </svg>
+  </button>
+  <div class="lightbox__stage" id="lightbox-stage">
+    <img class="lightbox__img" id="lightbox-img" alt="" draggable="false">
+  </div>
+  <div class="lightbox__foot" id="lightbox-foot">滚轮缩放 · ESC 关闭</div>
+</div>
 
-<footer>
-    数据来源：YOLOv8 检测 + 座位 ROI 判定 + 时序状态机（连续 3 帧防抖）· 数据库 data/seat.db ·
-    占座事件结局：ONGOING 仍在占座 / RESOLVED 人回来 / CLEARED 物品被清走
-</footer>
+<div class="sr-only" role="status" aria-live="polite" aria-atomic="true" id="sr-status"></div>
 
 <script>
-    const STATE_CLASS = {
-        "OCCUPIED": "occupied",
-        "OBJECT_ONLY": "object",
-        "EMPTY": "empty",
-        "ABSENT": "absent"
+(function () {
+  'use strict';
+
+  /* ====================== 常量 ====================== */
+  var IMG_EXT = ['.jpg', '.jpeg', '.png', '.webp', '.bmp'];
+  var VID_EXT = ['.mp4', '.avi', '.mov', '.mkv', '.webm', '.m4v'];
+  var IMG_MAX = 25 * 1024 * 1024;
+  var VID_MAX = 300 * 1024 * 1024;
+  var POLL_FAST = 800, POLL_SLOW = 1600, LIVE_MS = 5000, REQ_TIMEOUT = 15000;
+
+  var STATE_META = {
+    OCCUPIED: { pill: '有人', cls: 'occupied' },
+    OBJECT_ONLY: { pill: '有物无人', cls: 'object' },
+    EMPTY: { pill: '空座', cls: 'empty' },
+    ABSENT: { pill: '不在画面', cls: 'empty' }
+  };
+  var OUTCOME = {
+    ONGOING: ['仍在占座', 'ongoing'],
+    RESOLVED: ['人已回来', 'resolved'],
+    CLEARED: ['物品清走', 'cleared'],
+    INTERRUPTED: ['程序中断', 'interrupted']
+  };
+
+  /* ====================== 状态 ====================== */
+  var state = {
+    view: 'image',
+    seats: [],
+    counts: null,
+    hasData: false,
+    threshold: 30,
+    updatedAt: null,       // Date
+    filter: 'ALL',
+    image: { file: null, url: '', annotated: '', busy: false, meta: null },
+    video: {
+      file: null, jobId: null, uploading: false, running: false,
+      progress: 0, framesDone: 0, framesTotal: 0, videoSeconds: 0, videoDuration: 0,
+      detections: 0, seq: -1, timeline: [], events: [], partial: false, interrupted: false,
+      message: '', elapsed: 0
+    },
+    live: { paused: false, fails: 0, down: false },
+    notice: null,          // {kind:'info'|'ok'|'error', text, retry:fn|null}
+    l3: false
+  };
+
+  var jobTimer = null, liveTimer = null, lastProgress = -1, lastSeq = -1;
+  var clockTimer = null;
+  var lightboxOpen = false, lastFocus = null, pausedByLightbox = false;
+
+  /* ====================== 小工具 ====================== */
+  function $(id) { return document.getElementById(id); }
+  function esc(v) {
+    return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function pad(n) { return n < 10 ? '0' + n : String(n); }
+  function clockText(d) { return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); }
+  function hmText(d) { return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+  function mmss(sec) {
+    var t = Math.max(0, Math.round(sec || 0));
+    return pad(Math.floor(t / 60)) + ':' + pad(t % 60);
+  }
+  function mb(bytes) { return (bytes / 1024 / 1024).toFixed(1) + ' MB'; }
+  function sizeText(bytes) {
+    var m = bytes / 1024 / 1024;
+    return m >= 10 ? m.toFixed(1) + ' MB' : m.toFixed(2) + ' MB';
+  }
+  function isoText(v) {
+    if (!v) { return '—'; }
+    return String(v).replace('T', ' ').slice(0, 16);
+  }
+  function extOf(name) {
+    var i = String(name || '').lastIndexOf('.');
+    return i < 0 ? '' : String(name).slice(i).toLowerCase();
+  }
+
+  /* ====================== 座位编号自然排序（要求 5） ====================== */
+  function parseSeatId(id) {
+    var s = String(id == null ? '' : id).trim();
+    var m = s.match(/^([A-Za-z]*)[\s\-_]*(\d+(?:[\-_]\d+)*)$/);
+    if (!m) { return { prefix: '', nums: [], ok: false }; }
+    return {
+      prefix: (m[1] || '').toUpperCase(),
+      nums: m[2].split(/[\-_]/).map(Number),
+      ok: true
     };
+  }
+  function compareSeatId(a, b) {
+    var A = parseSeatId(a), B = parseSeatId(b);
+    if (A.ok !== B.ok) { return A.ok ? -1 : 1; }
+    if (!A.ok) { return String(a).localeCompare(String(b), 'zh'); }
+    if (A.prefix !== B.prefix) { return A.prefix < B.prefix ? -1 : 1; }
+    var n = Math.min(A.nums.length, B.nums.length);
+    for (var i = 0; i < n; i++) {
+      if (A.nums[i] !== B.nums[i]) { return A.nums[i] - B.nums[i]; }
+    }
+    if (A.nums.length !== B.nums.length) { return A.nums.length - B.nums.length; }
+    return String(a).localeCompare(String(b), 'zh');
+  }
 
-    const OUTCOME_LABEL = {
-        "ONGOING": ["仍在占座", "ongoing"],
-        "RESOLVED": ["人已回来", "resolved"],
-        "CLEARED": ["物品清走", "cleared"],
-        "INTERRUPTED": ["程序中断", "interrupted"]
-    };
+  /* ====================== 请求 ====================== */
+  function request(url, options) {
+    options = options || {};
+    var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var timer = null;
+    if (ctrl) {
+      options.signal = ctrl.signal;
+      timer = setTimeout(function () { ctrl.abort(); }, options.timeout || REQ_TIMEOUT);
+    }
+    return fetch(url, options).then(function (res) {
+      return res.text().then(function (text) {
+        var data = null;
+        try { data = text ? JSON.parse(text) : {}; } catch (e) { data = { error: text }; }
+        return { ok: res.ok, status: res.status, data: data };
+      });
+    }).then(function (r) {
+      if (timer) { clearTimeout(timer); }
+      return r;
+    }, function (err) {
+      if (timer) { clearTimeout(timer); }
+      throw err;
+    });
+  }
+  function errText(err) {
+    if (err && err.name === 'AbortError') { return '15 秒没有响应，服务可能卡住了。'; }
+    return '连不上服务，检查后端是否在运行。';
+  }
 
-    let autoRefresh = true;
-    let timer = null;
+  /* ====================== 时钟（要求 3） ====================== */
+  function renderClock() {
+    var now = new Date();
+    $('clock-hm').textContent = hmText(now);
+    $('clock-s').textContent = ':' + pad(now.getSeconds());
+    $('clock-iso').setAttribute('datetime', now.toISOString());
+    $('clock-iso').setAttribute('aria-label', clockText(now));
+    renderListTime();
+  }
+  function startClock() {
+    stopClock();
+    renderClock();
+    clockTimer = setInterval(renderClock, 1000);
+  }
+  function stopClock() {
+    if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { stopClock(); } else { startClock(); }
+  });
 
-    // 三种数据来源：image=上传图片 / video=上传视频 / live=数据库实时看板
-    let mode = "image";
-    let imageFile = null;
-    let videoFile = null;
-    let jobId = null;
-    let jobTimer = null;
+  /* ====================== 提示（工具条中段） ====================== */
+  function notice(kind, text, retry) {
+    state.notice = { kind: kind, text: text, retry: retry || null };
+    renderToolbar();
+  }
+  function clearNotice() {
+    if (state.notice) { state.notice = null; }
+  }
+  function announce(text) { $('sr-status').textContent = text; }
 
-    function formatTime(iso) {
-        if (!iso) { return "—"; }
-        const text = String(iso).replace("T", " ");
-        return text.slice(0, 16);
+  /* ====================== 渲染：导航 ====================== */
+  var navItems = Array.prototype.slice.call(document.querySelectorAll('.nav__item'));
+  var segBtns = Array.prototype.slice.call(document.querySelectorAll('.seg-btn'));
+
+  function renderNav() {
+    navItems.forEach(function (b) {
+      var on = b.dataset.view === state.view;
+      b.classList.toggle('is-active', on);
+      if (on) { b.setAttribute('aria-current', 'page'); } else { b.removeAttribute('aria-current'); }
+    });
+    var anySeg = false;
+    segBtns.forEach(function (b) {
+      var on = b.dataset.view === state.view;
+      if (on) { anySeg = true; }
+      b.classList.toggle('is-active', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+      b.tabIndex = on ? 0 : -1;
+    });
+    if (!anySeg) { segBtns[0].tabIndex = 0; }
+    $('nav-video-dot').hidden = !(state.video.running && state.view !== 'video');
+  }
+
+  /* ====================== 渲染：工具条 ====================== */
+  function renderToolbar() {
+    var v = state.view, vid = state.video;
+    var mid = $('toolbar-text');
+    var html = '', live = 'polite';
+
+    if (state.notice) {
+      var isErr = state.notice.kind === 'error';
+      mid.classList.toggle('is-error', isErr);
+      html = (isErr
+        ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" ' +
+          'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+          '<path d="M12 4.5L21 20H3z"/><path d="M12 10v4.5M12 17.2v.1"/></svg>'
+        : '') + '<span>' + esc(state.notice.text) + '</span>';
+      if (state.notice.retry) {
+        html += '<button class="linkish" id="mid-retry" type="button">重试</button>';
+      }
+      if (vid.running && v === 'video') { live = 'off'; }
+    } else {
+      mid.classList.remove('is-error');
+      if (v === 'image') {
+        if (state.image.busy) {
+          html = '<span>正在上传并识别，请稍候…</span>';
+        } else if (state.image.file) {
+          html = '<span>已选择 ' + esc(state.image.file.name) + '（' +
+            sizeText(state.image.file.size) + '）' +
+            (state.image.annotated ? ' · 视图仍为上次结果' : '') + ' · 点「开始识别」</span>';
+        } else {
+          html = '<span>图片检测 · 单帧识别，不写库</span>';
+        }
+      } else if (v === 'video') {
+        if (vid.uploading) {
+          html = '<span>上传中… ' + mb(state.video.file ? state.video.file.size : 0) + '</span>';
+        } else if (vid.running) {
+          var pct = Math.round((vid.progress || 0) * 100);
+          html = '<span>处理中 · ' + vid.framesDone + ' / ' + (vid.framesTotal || '—') +
+            ' 帧（' + pct + '%）· 视频 ' + mmss(vid.videoSeconds) + ' / ' + mmss(vid.videoDuration) + '</span>';
+          live = 'off';
+        } else if (vid.file) {
+          html = '<span>已选择 ' + esc(vid.file.name) + '（' + sizeText(vid.file.size) +
+            '）· 点「开始识别」</span>';
+        } else if (vid.jobId && vid.partial) {
+          html = '<span>已取消 · 已处理 ' + vid.framesDone + ' 帧，结果为部分数据</span>';
+        } else if (vid.jobId) {
+          html = '<span>处理完成 · ' + vid.framesDone + ' 帧 · 产生 ' + vid.events.length +
+            ' 起占座 · 用时 ' + (vid.elapsed || 0).toFixed(1) + ' 秒</span>';
+        } else {
+          html = '<span>视频检测 · 逐帧识别，不写库</span>';
+        }
+      } else if (v === 'live') {
+        html = '<span>实时看板 · ' + (state.live.paused ? '已暂停自动刷新' : '每 5 秒自动刷新') +
+          (state.updatedAt ? ' · 更新于 ' + clockText(state.updatedAt) : '') + '</span>';
+      } else {
+        html = '<span>记录 · 只读</span>';
+      }
     }
 
-    function formatDuration(seconds) {
-        const total = Math.max(0, Math.round(seconds || 0));
-        const minutes = Math.floor(total / 60);
-        const rest = total % 60;
-        return String(minutes).padStart(2, "0") + ":" + String(rest).padStart(2, "0");
+    // 视频文件 chip 只在视频页显示
+    var chip = $('toolbar-file');
+    var showChip = v === 'video' && vid.file && !vid.uploading;
+    chip.hidden = !showChip;
+    if (showChip) {
+      chip.textContent = vid.file.name;
+      chip.title = vid.file.name;
+    }
+    $('video-opts').hidden = !(v === 'video' && !vid.running && !vid.uploading);
+
+    mid.setAttribute('aria-live', live);
+    mid.innerHTML = html;
+    var retryBtn = $('mid-retry');
+    if (retryBtn && state.notice && state.notice.retry) {
+      retryBtn.addEventListener('click', state.notice.retry);
     }
 
-    function renderSeats(payload) {
-        const grid = document.getElementById("seat-grid");
-        const seats = (payload.seats || []).slice();
-        const counts = payload.counts || {};
+    // ── 右段按钮 ──
+    var primary = $('btn-primary');
+    var busy = (v === 'image' && state.image.busy) ||
+               (v === 'video' && (vid.uploading || vid.running));
+    var labels = { image: '开始识别', video: '开始识别', live: '立即检测', events: '刷新', timeline: '清空' };
+    primary.hidden = (v === 'timeline' && vid.timeline.length === 0);
+    primary.className = 'btn ' + (v === 'timeline' ? 'btn--ghost' : 'btn--primary');
+    primary.disabled = busy ||
+      (v === 'image' && !state.image.file) ||
+      (v === 'video' && !vid.file);
+    var spin = '<svg class="spinner' + (prefersReduced() ? ' spinner--static' : '') +
+      '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" ' +
+      'stroke-linecap="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"/></svg>';
+    if (v === 'image' && state.image.busy) {
+      primary.innerHTML = spin + '识别中…';
+    } else if (v === 'video' && vid.uploading) {
+      primary.innerHTML = spin + '上传中…';
+    } else {
+      primary.textContent = labels[v] || '执行';
+    }
 
-        // 按 ROI 位置的纵向、横向中心排序，使看板布局接近真实座位排布
-        seats.sort((a, b) => {
-            const ay = (a.roi[1] + a.roi[3]) / 2;
-            const by = (b.roi[1] + b.roi[3]) / 2;
-            if (Math.abs(ay - by) > 40) { return ay - by; }
-            return (a.roi[0] + a.roi[2]) / 2 - (b.roi[0] + b.roi[2]) / 2;
-        });
+    $('btn-pause').hidden = v !== 'live';
+    $('btn-reset').hidden = v !== 'live';
+    $('btn-cancel').hidden = !(v === 'video' && vid.running);
+    $('btn-pause').setAttribute('aria-pressed', String(state.live.paused));
+    $('btn-pause').title = state.live.paused ? '继续刷新' : '暂停刷新';
+    $('btn-pause').setAttribute('aria-label', state.live.paused ? '继续刷新' : '暂停刷新');
+    $('btn-pause').innerHTML = state.live.paused
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4.5l12 7.5-12 7.5z"/></svg>'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5v14M15 5v18"/></svg>';
+  }
 
-        grid.innerHTML = seats.map((seat) => {
-            const cssClass = seat.violation ? "violation" : (STATE_CLASS[seat.state] || "empty");
-            const badge = seat.violation ? '<span class="badge">占座</span>' : "";
-            let meta = "";
-            if (seat.state === "OCCUPIED") {
-                meta = "检测到 " + seat.person_count + " 人";
-            } else if (seat.state === "OBJECT_ONLY") {
-                meta = "离座 " + (seat.leave_minutes || 0).toFixed(0) + " 分钟 / 阈值 " + payload.threshold_minutes;
-            } else if (seat.state === "ABSENT") {
-                // 座位实体（如红脚凳）不在画面中：不计为座位，仅弱化展示
-                meta = "座位实体不在画面，不计入统计";
+  function prefersReduced() {
+    return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+
+  /* ====================== 渲染：视图区 ====================== */
+  var CAPTIONS = {
+    image: '点击选择图片，或把图片拖到这里',
+    video: '点击选择视频，或把视频拖到这里'
+  };
+  var METAS = {
+    image: 'JPG / PNG / WebP / BMP · 单张 ≤ 25 MB',
+    video: 'MP4 / AVI / MOV / MKV / WebM · 单个 ≤ 300 MB'
+  };
+  var ACCEPTS = {
+    image: 'image/jpeg,image/png,image/webp,image/bmp',
+    video: 'video/mp4,video/x-msvideo,video/quicktime,video/x-matroska,video/webm'
+  };
+  var INFO = {
+    events: {
+      title: '占座事件记录',
+      sub: '离座满 30 分钟记一次占座，午休 12:00–13:30 不计时',
+      meta: '来源：data/seat.db · 只读，最近 20 条'
+    },
+    timeline: {
+      title: '状态变化时间线',
+      sub: '座位状态需连续 3 帧一致才确认，短片段可能没有切换',
+      meta: '来源：最近一次视频任务 · 只读'
+    }
+  };
+
+  function currentImage() {
+    var v = state.view;
+    if (v === 'image') {
+      return state.image.annotated || state.image.url || '';
+    }
+    if (v === 'video') {
+      if (state.video.jobId && state.video.seq > 0) {
+        return '/api/jobs/' + state.video.jobId + '/frame?seq=' + state.video.seq;
+      }
+      return '';
+    }
+    if (v === 'live') { return '/api/frame?t=' + (state.updatedAt ? state.updatedAt.getTime() : 0); }
+    return '';
+  }
+
+  function renderViewport() {
+    var v = state.view;
+    var isRecord = v === 'events' || v === 'timeline';
+    var src = currentImage();
+
+    $('viewport-progress').hidden = !(v === 'image' && state.image.busy);
+
+    $('viewport-info').hidden = !isRecord;
+    $('dropzone').hidden = isRecord || !!src;
+    $('viewport-stage').hidden = isRecord || !src;
+
+    if (isRecord) {
+      var info = INFO[v];
+      $('info-title').textContent = info.title;
+      $('info-sub').textContent = info.sub;
+      $('info-meta').textContent = info.meta;
+      $('info-icon-events').hidden = v !== 'events';
+      $('info-icon-timeline').hidden = v !== 'timeline';
+      return;
+    }
+
+    if (src) {
+      var img = $('frame');
+      if (img.getAttribute('src') !== src) { img.setAttribute('src', src); }
+      var cap = '';
+      if (v === 'image' && state.image.meta) {
+        var m = state.image.meta;
+        cap = esc(m.source) + ' · ' + m.w + '×' + m.h + ' · 检出 ' + m.detections + ' 个目标';
+      } else if (v === 'video') {
+        cap = '帧 ' + state.video.seq + '/' + (state.video.framesTotal || '—') +
+          ' · 视频 ' + mmss(state.video.videoSeconds) + ' / ' + mmss(state.video.videoDuration) +
+          ' · 检出 ' + state.video.detections + ' 个目标';
+      } else if (v === 'live') {
+        cap = state.updatedAt ? '更新于 ' + clockText(state.updatedAt) : '';
+      }
+      $('viewport-caption').innerHTML = cap;
+      $('viewport-caption').hidden = !cap;
+      $('zoom-btn').setAttribute('aria-label', '放大查看检测画面');
+      return;
+    }
+
+    // 空态：按模式切图标与文案
+    var mode = v === 'video' ? 'video' : 'image';
+    $('dz-icon-image').hidden = mode !== 'image';
+    $('dz-icon-video').hidden = mode !== 'video';
+    $('dz-sub').textContent = CAPTIONS[mode];
+    $('dz-meta').textContent = METAS[mode];
+    $('file-input').setAttribute('accept', ACCEPTS[mode]);
+  }
+
+  /* ====================== 渲染：摘要 ====================== */
+  function counted() {
+    return state.seats.filter(function (s) { return s.state !== 'ABSENT'; });
+  }
+
+  function renderSummary() {
+    var c = state.counts || {};
+    var occ = c.OCCUPIED || 0, obj = c.OBJECT_ONLY || 0, emp = c.EMPTY || 0;
+    var abs = c.ABSENT || 0, vio = c.VIOLATION || 0;
+    var total = counted().length;
+
+    $('summary').dataset.hasData = state.hasData ? 'true' : 'false';
+    $('summary').classList.toggle('is-busy', !!state.image.busy);
+    $('sum-total').textContent = state.hasData ? String(total) : '—';
+    $('sum-occupied').textContent = state.hasData ? String(occ) : '—';
+    $('sum-object').textContent = state.hasData ? String(obj) : '—';
+    $('sum-empty').textContent = state.hasData ? String(emp) : '—';
+
+    var bar = $('composition');
+    if (!state.hasData || total <= 0) {
+      bar.innerHTML = '';
+    } else {
+      var parts = [['occupied', occ], ['object', obj], ['empty', emp]];
+      bar.innerHTML = parts.filter(function (p) { return p[1] > 0; }).map(function (p) {
+        return '<span class="comp--' + p[0] + '" style="width:' + (p[1] / total * 100) + '%"></span>';
+      }).join('');
+    }
+
+    $('sum-violation').hidden = !(state.hasData && vio > 0);
+    $('sum-violation-n').textContent = String(vio);
+
+    var absent = $('sum-absent');
+    absent.hidden = !(state.hasData && abs > 0);
+    absent.textContent = '另有 ' + abs + ' 座不在画面（不计入总数）';
+  }
+
+  /* ====================== 渲染：列表 ====================== */
+  function rowDesc(seat) {
+    if (seat.violation) {
+      var leave = Math.round(seat.leave_minutes || 0);
+      var over = Math.max(0, leave - (state.threshold || 30));
+      return '离座 ' + leave + ' 分钟 · <em>超阈值 ' + over + ' 分钟</em>';
+    }
+    if (seat.state === 'OCCUPIED') { return '检测到 ' + (seat.person_count || 0) + ' 人'; }
+    if (seat.state === 'OBJECT_ONLY') {
+      return '离座 ' + Math.round(seat.leave_minutes || 0) + ' 分钟 · 阈值 ' +
+        (state.threshold || 30) + ' 分钟';
+    }
+    if (seat.state === 'ABSENT') { return '座位实体不在画面，不计入统计'; }
+    return '无检测目标';
+  }
+
+  function seatAria(seat) {
+    var bits = [seat.id, (seat.name || seat.id) + ' 号座'];
+    if (seat.violation) {
+      bits.push('有物无人');
+      var leave = Math.round(seat.leave_minutes || 0);
+      bits.push('离座 ' + leave + ' 分钟，超阈值 ' + Math.max(0, leave - (state.threshold || 30)) + ' 分钟');
+      bits.push('占座中');
+    } else {
+      bits.push((STATE_META[seat.state] || {}).pill || seat.state);
+      if (seat.state === 'OCCUPIED') { bits.push('检测到 ' + (seat.person_count || 0) + ' 人'); }
+      if (seat.state === 'OBJECT_ONLY') { bits.push('离座 ' + Math.round(seat.leave_minutes || 0) + ' 分钟'); }
+      if (seat.state === 'ABSENT') { bits.push('不在画面，不计入统计'); }
+    }
+    return bits.join(' · ');
+  }
+
+  function renderRows() {
+    var rows = $('rows');
+    var empty = $('list-empty');
+    var all = counted().length;
+
+    if (!state.hasData) {
+      rows.innerHTML = '';
+      empty.hidden = false;
+      $('list-note').hidden = true;
+      return;
+    }
+
+    var list = state.seats.slice().sort(function (a, b) { return compareSeatId(a.id, b.id); });
+    if (state.filter !== 'ALL') {
+      list = list.filter(function (s) { return s.state === state.filter; });
+    }
+
+    empty.hidden = list.length > 0;
+    if (list.length === 0) {
+      empty.innerHTML = '<span class="list-empty__t">这个筛选下没有座位</span>' +
+        '<span class="list-empty__d">换一个状态筛选，或点「全部」查看所有座位。</span>';
+    }
+
+    var html = list.map(function (seat) {
+      var meta = STATE_META[seat.state] || STATE_META.EMPTY;
+      var cls = 'seatrow seatrow--' + (seat.violation ? 'VIOLATION' : seat.state);
+      if (seat.state === 'ABSENT') { cls += ' seatrow--ABSENT'; }
+      var pillCls = seat.violation ? 'pill--danger' : 'pill--' + meta.cls;
+      var pillText = seat.violation ? '占座中' : meta.pill;
+      var dot = seat.violation ? '<i class="vdot" aria-hidden="true"></i>' : '';
+      return '<div class="' + cls + '" data-state="' + esc(seat.state) + '" aria-label="' +
+        esc(seatAria(seat)) + '" role="listitem">' +
+        '<span class="seatrow__id">' + esc(seat.id) + '</span>' +
+        '<span class="seatrow__name" title="' + esc(seat.name || seat.id) + '">' +
+          esc(seat.name || seat.id) + '</span>' +
+        '<span class="seatrow__desc" title="' + esc(rowDesc(seat).replace(/<[^>]+>/g, '')) + '">' +
+          rowDesc(seat) + '</span>' +
+        '<span class="seatrow__state">' + dot + '<span class="pill ' + pillCls + '">' +
+          esc(pillText) + '</span></span>' +
+        '</div>';
+    }).join('');
+    rows.setAttribute('role', 'list');
+    rows.innerHTML = html;
+
+    // 密集行（仅 >=1024 生效）
+    $('seatlist').classList.toggle('is-dense', state.seats.length > 12);
+
+    // detections === 0 的提示条
+    var note = $('list-note');
+    var noDet = state.view === 'image' && state.image.meta && state.image.meta.detections === 0;
+    if (noDet) {
+      var abs = (state.counts || {}).ABSENT || 0;
+      note.hidden = false;
+      note.innerHTML = '<div class="list-note">' + (abs === state.seats.length
+        ? '这张图里所有座位都没被框住，确认拍的是这个自习室。'
+        : '画面里没有识别到人或物品。可能是光线太暗、机位太远，或座位区不在画面内——换一张更清晰、更接近俯视的图片试试。') + '</div>';
+    } else {
+      note.hidden = true;
+    }
+    updateFade();
+  }
+
+  function renderChips() {
+    var c = state.counts || {};
+    var all = counted().length;
+    var occ = c.OCCUPIED || 0, obj = c.OBJECT_ONLY || 0, emp = c.EMPTY || 0;
+    $('chip-all').textContent = String(all);
+    $('chip-occupied').textContent = String(occ);
+    $('chip-object').textContent = String(obj);
+    $('chip-empty').textContent = String(emp);
+    var map = { ALL: all, OCCUPIED: occ, OBJECT_ONLY: obj, EMPTY: emp };
+    Array.prototype.forEach.call(document.querySelectorAll('.chip'), function (chip) {
+      var f = chip.dataset.filter;
+      chip.setAttribute('aria-pressed', state.filter === f ? 'true' : 'false');
+      chip.disabled = !state.hasData || (f !== 'ALL' && map[f] === 0);
+    });
+  }
+
+  function renderListTime() {
+    var el = $('list-time');
+    if (!state.updatedAt) { el.textContent = ''; el.classList.remove('is-stale'); return; }
+    var age = (Date.now() - state.updatedAt.getTime()) / 1000;
+    if (age > 60) {
+      var mins = Math.max(1, Math.round(age / 60));
+      el.textContent = '⚠ 更新于 ' + hmText(state.updatedAt) + ' · ' + mins + ' 分钟前';
+      el.classList.add('is-stale');
+    } else {
+      el.textContent = '更新于 ' + clockText(state.updatedAt);
+      el.classList.remove('is-stale');
+    }
+  }
+
+  function renderListHead() {
+    var all = counted().length;
+    var list = state.seats.filter(function (s) { return s.state !== 'ABSENT'; });
+    if (state.filter !== 'ALL') {
+      list = list.filter(function (s) { return s.state === state.filter; });
+    }
+    $('list-count').textContent = !state.hasData
+      ? '尚未检测'
+      : (state.filter === 'ALL'
+        ? '共 ' + all + ' 座 · 按编号排序'
+        : '显示 ' + list.length + ' / 共 ' + all + ' 座');
+
+    var abs = (state.counts || {}).ABSENT || 0;
+    var absEl = $('list-absent');
+    absEl.hidden = !(state.hasData && abs > 0);
+    absEl.textContent = '含 ' + abs + ' 座不在画面';
+
+    renderListTime();
+    $('seat-scroll').setAttribute('aria-label', '座位状态列表，共 ' + all + ' 座');
+  }
+
+  function updateFade() {
+    var sc = $('seat-scroll');
+    var rowsN = sc.querySelectorAll('.seatrow').length;
+    var atBottom = sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 2;
+    $('list-fade').hidden = !(rowsN > 6 && !atBottom && sc.scrollHeight > sc.clientHeight + 4);
+  }
+  $('seat-scroll').addEventListener('scroll', updateFade, { passive: true });
+
+  /* ====================== 渲染：记录页 ====================== */
+  function renderEvents() {
+    var body = $('event-body');
+    var rows = state.events || [];
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="6" style="color:var(--text-hint)">' +
+        '暂无占座事件。运行 scripts/track_stream.py 或在看板页点「立即检测」积累数据。</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map(function (e) {
+      var out = OUTCOME[e.outcome] || [e.outcome, 'interrupted'];
+      return '<tr>' +
+        '<td>' + esc(e.seat_id) + '</td>' +
+        '<td class="num">' + esc(isoText(e.start_ts)) + '</td>' +
+        '<td class="num">' + (e.end_ts ? esc(isoText(e.end_ts)) : '进行中') + '</td>' +
+        '<td class="num">' + Math.round(e.duration_minutes || 0) + ' 分钟</td>' +
+        '<td class="num">' + Math.round(e.threshold_minutes || 0) + ' 分钟</td>' +
+        '<td><span class="tag tag--' + out[1] + '">' + esc(out[0]) + '</span></td>' +
+        '</tr>';
+    }).join('');
+    $('events-src').textContent = state.video.events.length
+      ? '本次视频 · ' + state.video.events.length + ' 起'
+      : '数据库 · 最近 20 条';
+  }
+
+  function renderTimeline() {
+    var items = state.video.timeline || [];
+    $('timeline-head').textContent = items.length
+      ? '状态变化时间线 · 共 ' + items.length + ' 条'
+      : '状态变化时间线';
+    $('timeline-src').textContent = state.video.partial ? '本次视频 · 部分数据' : '本次视频 · 只读';
+    var list = $('timeline-list');
+    if (!items.length) {
+      list.innerHTML = '<div class="list-empty" style="padding:20px 14px">' +
+        '<span class="list-empty__t">还没有状态切换</span>' +
+        '<span class="list-empty__d">上传视频并跑一次检测后，每次座位状态变化都会记录在这里。' +
+        '状态需连续 3 帧一致才确认，短片段可能没有切换。</span></div>';
+      return;
+    }
+    list.innerHTML = items.slice().reverse().slice(0, 200).map(function (it) {
+      return '<div class="tl__item">' +
+        '<span class="tl__clock">' + esc(it.clock) + '</span>' +
+        '<span class="tl__seat">' + esc(it.seat_id) + '</span>' +
+        '<span class="tl__flow">' + esc(it.from_cn) + ' → ' + esc(it.to_cn) + '</span>' +
+        '<span class="tl__v">视频 ' + Math.round(it.video_seconds || 0) + 's</span>' +
+        '</div>';
+    }).join('');
+  }
+
+  /* ====================== 渲染：总入口 ====================== */
+  function render() {
+    var v = state.view;
+    renderNav();
+    renderToolbar();
+    renderViewport();
+
+    var isRecord = v === 'events' || v === 'timeline';
+    var showFail = state.l3 && !isRecord;
+
+    $('pane-seats').hidden = isRecord || showFail;
+    $('pane-events').hidden = v !== 'events';
+    $('pane-timeline').hidden = v !== 'timeline';
+    $('pane-error').hidden = !showFail;
+
+    if (!isRecord && !showFail) {
+      renderSummary();
+      renderListHead();
+      renderChips();
+      renderRows();
+    }
+    if (v === 'events') { renderEvents(); }
+    if (v === 'timeline') { renderTimeline(); }
+    $('fail-text').textContent = state.l3text ||
+      '拿不到座位数据。确认后端已启动（uvicorn app.main:app），然后重试。';
+  }
+
+  /* ====================== 数据落地 ====================== */
+  function applySeats(payload, when) {
+    state.seats = Array.isArray(payload.seats) ? payload.seats : [];
+    state.counts = payload.counts || {};
+    state.hasData = state.seats.length > 0;
+    if (payload.threshold_minutes) { state.threshold = payload.threshold_minutes; }
+    state.updatedAt = when || new Date();
+    state.l3 = false;
+  }
+  function resetSeats() {
+    state.seats = [];
+    state.counts = null;
+    state.hasData = false;
+    state.updatedAt = null;
+    state.filter = 'ALL';
+  }
+
+  /* ====================== 视图切换 ====================== */
+  function setView(next) {
+    if (state.view === next) { return; }
+    state.view = next;
+    state.filter = 'ALL';
+    clearNotice();
+    stopLive();
+    stopJobPolling();
+    if (next === 'live') {
+      state.l3 = false;
+      loadLive(true);
+      if (!state.live.paused) { startLive(); }
+    } else if (next === 'events') {
+      loadEvents();
+    } else if (next === 'video' && state.video.running) {
+      pollJob(true);
+    }
+    render();
+  }
+
+  /* ====================== 图片流程 ====================== */
+  function pickFile(file) {
+    var v = state.view;
+    var isVideo = v === 'video';
+    if (!file) { return; }
+    var ext = extOf(file.name);
+    var allow = isVideo ? VID_EXT : IMG_EXT;
+    if (allow.indexOf(ext) < 0) {
+      notice('error', isVideo
+        ? '不支持的格式（' + (ext || '未知') + '）。请用 MP4 / AVI / MOV / MKV / WebM。'
+        : '不支持的格式（' + (ext || '未知') + '）。请用 JPG / PNG / WebP / BMP。');
+      return;
+    }
+    var limit = isVideo ? VID_MAX : IMG_MAX;
+    if (file.size > limit) {
+      notice('error', isVideo
+        ? '视频 ' + sizeText(file.size) + '，超过 300 MB 上限，请截短后重试。'
+        : '文件 ' + sizeText(file.size) + '，超过 25 MB 上限，请压缩后重试。');
+      return;
+    }
+    if (file.size === 0) {
+      notice('error', '这个文件是空的，换一个试试。');
+      return;
+    }
+    clearNotice();
+
+    if (isVideo) {
+      state.video.file = file;
+      state.video.jobId = null;
+      state.video.running = false;
+      state.video.partial = false;
+    } else {
+      // 不撤销 URL：旧标注图仍在显示时保留，直到新一次识别完成
+      if (state.image.url && !state.image.annotated) { URL.revokeObjectURL(state.image.url); }
+      state.image.file = file;
+      state.image.url = URL.createObjectURL(file);
+    }
+    render();
+  }
+
+  function runImage() {
+    if (!state.image.file || state.image.busy) { return; }
+    state.image.busy = true;
+    clearNotice();
+    render();
+
+    var form = new FormData();
+    form.append('file', state.image.file);
+
+    request('/api/analyze/image', { method: 'POST', body: form })
+      .then(function (r) {
+        if (!r.ok) {
+          var msg = String((r.data && r.data.error) || '').slice(0, 60);
+          if (r.status === 400 || r.status === 404) {
+            notice('error', '这张图无法识别：' + (msg || '服务拒绝了这次请求。') + '。', runImage);
+          } else {
+            notice('error', '服务出错，刚才那次没有完成。', runImage);
+          }
+          return;
+        }
+        var d = r.data;
+        applySeats(d, new Date());
+        state.image.annotated = d.annotated || state.image.url;
+        state.image.meta = {
+          source: d.source || (state.image.file ? state.image.file.name : ''),
+          w: (d.image_size && d.image_size[0]) || '—',
+          h: (d.image_size && d.image_size[1]) || '—',
+          detections: d.detections || 0
+        };
+        state.image.busy = false;
+        state.filter = 'ALL';
+        var c = d.counts || {};
+        var parts = ['检测完成：共 ' + counted().length + ' 座',
+          '有人在座 ' + (c.OCCUPIED || 0) + ' 座',
+          '有物无人 ' + (c.OBJECT_ONLY || 0) + ' 座',
+          '空座 ' + (c.EMPTY || 0) + ' 座'];
+        if ((c.VIOLATION || 0) > 0) { parts.push('其中占座中 ' + c.VIOLATION + ' 座'); }
+        announce(parts.join('，') + '。');
+        if ((d.detections || 0) === 0) {
+          notice('info', '识别完成 · 未检出任何目标');
+        } else {
+          notice('ok', '识别完成 · 检出 ' + d.detections + ' 个目标 · 用时 ' +
+            (d.elapsed_ms || 0) + ' ms');
+        }
+        render();
+      })
+      .catch(function (err) {
+        notice('error', errText(err), runImage);
+        render();
+      });
+  }
+
+  /* ====================== 视频流程 ====================== */
+  function runVideo() {
+    if (!state.video.file || state.video.uploading || state.video.running) { return; }
+    var vid = state.video;
+    vid.uploading = true;
+    vid.partial = false;
+    vid.interrupted = false;
+    vid.message = '';
+    clearNotice();
+    render();
+
+    var form = new FormData();
+    form.append('file', vid.file);
+    form.append('time_scale', $('video-scale').value);
+    form.append('sample_interval', $('video-sample').value);
+
+    var slowTimer = setTimeout(function () {
+      if (state.video.uploading) { notice('info', '上传较慢，请勿关闭页面'); }
+    }, 30000);
+
+    request('/api/analyze/video', { method: 'POST', body: form, timeout: 120000 })
+      .then(function (r) {
+        clearTimeout(slowTimer);
+        if (!r.ok) {
+          vid.uploading = false;
+          notice('error', r.status === 400
+            ? String((r.data && r.data.error) || '视频被拒绝。').slice(0, 60) + '。'
+            : '服务出错，刚才那次没有完成。', runVideo);
+          render();
+          return;
+        }
+        vid.uploading = false;
+        vid.jobId = r.data.job_id;
+        vid.running = true;
+        vid.progress = 0;
+        vid.framesDone = 0;
+        vid.seq = -1;
+        lastProgress = -1;
+        lastSeq = -1;
+        render();
+        pollJob(true);
+      })
+      .catch(function (err) {
+        clearTimeout(slowTimer);
+        vid.uploading = false;
+        notice('error', errText(err), runVideo);
+        render();
+      });
+  }
+
+  function stopJobPolling() {
+    if (jobTimer) { clearTimeout(jobTimer); jobTimer = null; }
+  }
+
+  function pollJob(immediate) {
+    stopJobPolling();
+    if (!state.video.jobId || !state.video.running) { return; }
+    var tick = function () {
+      var id = state.video.jobId;
+      if (!id) { return; }
+      request('/api/jobs/' + id, { method: 'GET' })
+        .then(function (r) {
+          if (!r.ok) {
+            state.video.running = false;
+            if (r.status === 404) {
+              notice('error', '任务已不存在（可能已重启服务）。换一个视频重新开始。', null);
             } else {
-                meta = "无检测目标";
+              notice('error', '服务出错，刚才那次没有完成。', null);
             }
-            return `
-                <div class="seat ${cssClass}">
-                    ${badge}
-                    <div class="id">${seat.id}</div>
-                    <div class="state">${seat.state_cn}</div>
-                    <div class="meta">${meta}</div>
-                </div>`;
-        }).join("");
-
-        // 座位总数只计画面中存在的座位；不在画面的单独提示
-        const counted = seats.filter((s) => s.state !== "ABSENT").length;
-        const absentCount = seats.length - counted;
-        document.getElementById("seat-total").textContent =
-            "共 " + counted + " 座" + (absentCount > 0 ? "（另有 " + absentCount + " 座不在画面）" : "");
-        document.getElementById("count-occupied").textContent = counts.OCCUPIED || 0;
-        document.getElementById("count-object").textContent = counts.OBJECT_ONLY || 0;
-        document.getElementById("count-violation").textContent = counts.VIOLATION || 0;
-        document.getElementById("count-empty").textContent = counts.EMPTY || 0;
-        if (payload.threshold_minutes) {
-            document.getElementById("threshold").textContent = payload.threshold_minutes;
-        }
-        document.getElementById("updated").textContent = payload.updated_at ? formatTime(payload.updated_at) : "尚无数据";
-    }
-
-    function renderEvents(data) {
-        const body = document.getElementById("event-body");
-        const events = data.events || [];
-
-        document.getElementById("event-count").textContent = "最近 " + events.length + " 条";
-
-        if (events.length === 0) {
-            body.innerHTML = '<tr><td colspan="6" class="empty-row">暂无占座事件。运行 <code>python scripts/track_stream.py</code> 或点击「立即检测」积累数据。</td></tr>';
+            render();
             return;
-        }
+          }
+          var d = r.data;
+          var changed = (d.progress !== lastProgress) || (d.frame_seq !== lastSeq);
+          lastProgress = d.progress;
+          lastSeq = d.frame_seq;
+          applyJob(d);
 
-        body.innerHTML = events.map((event) => {
-            const outcome = OUTCOME_LABEL[event.outcome] || [event.outcome, "interrupted"];
-            const end = event.end_ts ? formatTime(event.end_ts) : "进行中";
-            return `
-                <tr>
-                    <td>${event.seat_id}</td>
-                    <td>${formatTime(event.start_ts)}</td>
-                    <td>${end}</td>
-                    <td>${event.duration_minutes.toFixed(0)} 分钟</td>
-                    <td>${event.threshold_minutes.toFixed(0)} 分钟</td>
-                    <td><span class="tag ${outcome[1]}">${outcome[0]}</span></td>
-                </tr>`;
-        }).join("");
-    }
-
-    function renderVideoEvents(events) {
-        const body = document.getElementById("event-body");
-        document.getElementById("event-count").textContent = "本次视频 " + events.length + " 条";
-
-        if (events.length === 0) {
-            body.innerHTML = '<tr><td colspan="6" class="empty-row">本次视频未产生占座事件：没有出现「有物无人」持续满阈值的座位。可把时间倍率调大再试。</td></tr>';
+          if (d.status === 'done' || d.status === 'error' || d.status === 'cancelled') {
+            state.video.running = false;
+            if (d.status === 'done') {
+              notice('ok', '处理完成 · ' + d.frames_done + ' 帧 · 产生 ' +
+                (d.events || []).length + ' 起占座 · 用时 ' +
+                (d.elapsed_seconds || 0).toFixed(1) + ' 秒');
+              announce('视频处理完成：' + d.frames_done + ' 帧，产生 ' +
+                (d.events || []).length + ' 起占座。');
+            } else if (d.status === 'cancelled') {
+              state.video.partial = true;
+              notice('info', '已取消 · 已处理 ' + d.frames_done + ' 帧，结果为部分数据');
+            } else {
+              state.video.interrupted = true;
+              notice('error', '视频处理中断：' +
+                String(d.message || '未知原因').slice(0, 60) + '。已处理 ' +
+                d.frames_done + ' 帧的数据仍可查看。');
+            }
+            render();
             return;
-        }
-
-        body.innerHTML = events.map((event) => {
-            const outcome = OUTCOME_LABEL[event.outcome] || [event.outcome, "interrupted"];
-            const end = event.end || "进行中";
-            return `
-                <tr>
-                    <td>${event.seat_id}</td>
-                    <td>${event.start}</td>
-                    <td>${end}</td>
-                    <td>${(event.duration_minutes || 0).toFixed(0)} 分钟</td>
-                    <td>${(event.threshold_minutes || 0).toFixed(0)} 分钟</td>
-                    <td><span class="tag ${outcome[1]}">${outcome[0]}</span></td>
-                </tr>`;
-        }).join("");
-    }
-
-    function renderTimeline(items) {
-        const list = document.getElementById("timeline-list");
-        const panel = document.getElementById("panel-timeline");
-        if (panel.classList.contains("hidden")) { panel.classList.remove("hidden"); }
-
-        document.getElementById("timeline-count").textContent = items.length
-            ? "共 " + items.length + " 条切换"
-            : "暂无状态切换";
-
-        if (!items.length) {
-            list.innerHTML = '<div class="empty-row">还没有状态切换记录。座位状态需连续 3 帧一致才会确认，短片段可能没有切换。</div>';
-            return;
-        }
-
-        list.innerHTML = items.slice(-30).reverse().map((item) => `
-            <div class="item">
-                <span class="clock">${item.clock}</span>
-                <span class="seat-id">${item.seat_id}</span>
-                <span>${item.from_cn} → ${item.to_cn}</span>
-                <span style="margin-left:auto;color:#8b919b;font-size:11px">视频 ${Math.round(item.video_seconds)}s</span>
-            </div>`).join("");
-    }
-
-    async function refresh() {
-        if (mode !== "live") { return; }
-
-        try {
-            const [seatsResponse, eventsResponse] = await Promise.all([
-                fetch("/api/seats"),
-                fetch("/api/events?limit=20")
-            ]);
-
-            renderSeats(await seatsResponse.json());
-            renderEvents(await eventsResponse.json());
-        } catch (error) {
-            document.getElementById("updated").textContent = "连接失败";
-        }
-    }
-
-    async function detect() {
-        const button = document.getElementById("btn-detect");
-        button.disabled = true;
-        button.textContent = "识别中…";
-
-        try {
-            const response = await fetch("/api/detect", { method: "POST" });
-            const payload = await response.json();
-
-            if (!response.ok) {
-                document.getElementById("frame-note").textContent = "检测失败：" + (payload.error || "未知错误");
-                return;
-            }
-
-            renderSeats(payload);
-            document.getElementById("frame").src = "/api/frame?t=" + Date.now();
-            document.getElementById("frame-note").textContent =
-                "本次检测到 " + payload.detections + " 个目标，底图：" + payload.source;
-            await refresh();
-        } catch (error) {
-            document.getElementById("frame-note").textContent = "检测请求失败：" + error;
-        } finally {
-            button.disabled = false;
-            button.textContent = "立即检测";
-        }
-    }
-
-    function setAutoRefresh(enable) {
-        autoRefresh = enable;
-        document.getElementById("auto-state").textContent = enable ? "开启（5 秒）" : "已暂停";
-        document.getElementById("btn-auto").textContent = enable ? "暂停刷新" : "开启刷新";
-
-        if (timer) { clearInterval(timer); timer = null; }
-        if (enable) { timer = setInterval(refresh, 5000); }
-    }
-
-    // ---------- 模式切换 ----------
-
-    function setMode(next) {
-        mode = next;
-
-        document.querySelectorAll(".tab").forEach((tab) => {
-            tab.classList.toggle("active", tab.dataset.mode === next);
+          }
+          render();
+          jobTimer = setTimeout(tick, changed ? POLL_FAST : POLL_SLOW);
+        })
+        .catch(function (err) {
+          state.video.running = false;
+          notice('error', errText(err), null);
+          render();
         });
-        document.getElementById("pane-image").classList.toggle("hidden", next !== "image");
-        document.getElementById("pane-video").classList.toggle("hidden", next !== "video");
+    };
+    if (immediate) { tick(); } else { jobTimer = setTimeout(tick, POLL_FAST); }
+  }
 
-        const hint = document.getElementById("mode-hint");
+  function applyJob(d) {
+    var vid = state.video;
+    vid.progress = d.progress || 0;
+    vid.framesDone = d.frames_done || 0;
+    vid.framesTotal = d.frames_total || 0;
+    vid.videoSeconds = d.video_seconds || 0;
+    vid.videoDuration = d.video_duration || 0;
+    vid.detections = d.detections || 0;
+    vid.elapsed = d.elapsed_seconds || 0;
+    vid.timeline = d.timeline || [];
+    vid.events = d.events || [];
+    if (d.frame_seq) { vid.seq = d.frame_seq; }
 
-        if (next === "live") {
-            hint.textContent = "当前：团队数据库 / 演示底图";
-            document.getElementById("panel-timeline").classList.add("hidden");
-            document.getElementById("frame").src = "/api/frame?t=" + Date.now();
-            document.getElementById("frame-note").textContent = "数据来自持续采集写入的数据库；「立即检测」用演示底图跑一次识别。";
-            setAutoRefresh(true);
-            refresh();
-            return;
+    if (d.seats && d.seats.length) {
+      applySeats({ seats: d.seats, counts: d.counts, threshold_minutes: d.threshold_minutes }, new Date());
+    } else if (d.counts) {
+      state.counts = d.counts;
+    }
+  }
+
+  function cancelJob() {
+    if (!state.video.jobId) { return; }
+    $('btn-cancel').disabled = true;
+    request('/api/jobs/' + state.video.jobId + '/cancel', { method: 'POST' })
+      .then(function () {
+        $('btn-cancel').disabled = false;
+        notice('info', '正在取消…');
+      })
+      .catch(function () {
+        $('btn-cancel').disabled = false;
+        notice('error', '取消失败，请稍后再试。');
+      });
+  }
+
+  /* ====================== 实时看板 ====================== */
+  function stopLive() {
+    if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+  }
+  function startLive() {
+    stopLive();
+    if (state.live.paused) { return; }
+    liveTimer = setInterval(function () { loadLive(false); }, LIVE_MS);
+  }
+  function loadLive(first) {
+    request('/api/seats', { method: 'GET' })
+      .then(function (r) {
+        if (!r.ok) { throw new Error('bad status'); }
+        state.live.fails = 0;
+        state.live.down = false;
+        applySeats(r.data, new Date());
+        if (state.view === 'live' && !state.live.paused) { state.notice = null; }
+        render();
+      })
+      .catch(function () {
+        state.live.fails += 1;
+        if (state.live.fails >= 2) {
+          state.live.paused = true;
+          state.live.down = true;
+          state.l3 = true;
+          state.l3text = '拿不到座位数据。确认后端已启动（uvicorn app.main:app），然后重试。';
+          notice('error', '服务未就绪');
+        } else if (first) {
+          notice('error', '服务未就绪');
         }
-
-        stopPolling();
-        setAutoRefresh(false);
-
-        if (next === "image") {
-            hint.textContent = "当前：上传图片（单帧识别，不写库）";
-        } else {
-            hint.textContent = "当前：上传视频（逐帧识别，不写库）";
+        render();
+      });
+  }
+  function runDetect() {
+    notice('info', '正在检测…');
+    render();
+    request('/api/detect', { method: 'POST', timeout: 30000 })
+      .then(function (r) {
+        if (!r.ok) {
+          notice('error', '服务出错，刚才那次没有完成。', runDetect);
+          render();
+          return;
         }
+        applySeats(r.data, new Date());
+        state.notice = null;
+        render();
+        loadLive(false);
+      })
+      .catch(function (err) {
+        notice('error', errText(err), runDetect);
+        render();
+      });
+  }
+  function resetLive() {
+    resetSeats();
+    state.l3 = false;
+    state.notice = null;
+    render();
+    loadLive(false);
+  }
+
+  /* ====================== 记录页 ====================== */
+  function loadEvents() {
+    request('/api/events?limit=20', { method: 'GET' })
+      .then(function (r) {
+        state.events = (r.ok && r.data.events) || [];
+        state.l3 = false;
+        state.notice = null;
+        render();
+      })
+      .catch(function (err) {
+        notice('error', errText(err), loadEvents);
+        render();
+      });
+  }
+  function clearTimeline() {
+    state.video.timeline = [];
+    render();
+  }
+
+  /* ====================== 放大查看（要求 2） ====================== */
+  var zoom = { scale: 1, tx: 0, ty: 0 };
+
+  function lbEls() {
+    return { box: $('lightbox'), img: $('lightbox-img'), stage: $('lightbox-stage') };
+  }
+  function clampPan() {
+    var e = lbEls().img;
+    var w = e.clientWidth, h = e.clientHeight;
+    var maxX = Math.max(0, (w * zoom.scale - w) / 2);
+    var maxY = Math.max(0, (h * zoom.scale - h) / 2);
+    zoom.tx = Math.min(maxX, Math.max(-maxX, zoom.tx));
+    zoom.ty = Math.min(maxY, Math.max(-maxY, zoom.ty));
+  }
+  function applyZoom() {
+    var box = lbEls().box, img = lbEls().img;
+    if (zoom.scale <= 1.0001) { zoom.scale = 1; zoom.tx = 0; zoom.ty = 0; }
+    clampPan();
+    img.style.transform = 'translate(' + zoom.tx + 'px,' + zoom.ty + 'px) scale(' + zoom.scale + ')';
+    box.classList.toggle('is-zoomed', zoom.scale > 1);
+  }
+  function openLightbox() {
+    var src = currentImage();
+    if (!src) { return; }
+    var box = lbEls().box, img = lbEls().img;
+    lastFocus = document.activeElement;
+
+    img.setAttribute('src', src);
+    var cap = '';
+    if (state.view === 'image' && state.image.meta) {
+      var m = state.image.meta;
+      cap = m.source + ' · ' + m.w + '×' + m.h + ' · 检出 ' + m.detections + ' 个目标';
+    } else if (state.view === 'video') {
+      cap = (state.video.file ? state.video.file.name : '视频当前帧') + ' · 帧 ' +
+        state.video.seq + ' · 检出 ' + state.video.detections + ' 个目标';
+    } else {
+      cap = '实时看板画面';
     }
+    $('lightbox-info').textContent = cap;
+    $('lightbox-info').title = cap;
 
-    // ---------- 文件选择 ----------
+    pausedByLightbox = state.video.running;
+    var coarse = window.matchMedia('(pointer:coarse)').matches;
+    $('lightbox-foot').textContent = coarse
+      ? '双指缩放 · 双击放大 · 点右上关闭'
+      : '滚轮缩放 · ESC 关闭';
+    if (pausedByLightbox) { $('lightbox-foot').textContent += ' · 处理中，已暂停换帧'; }
 
-    function setStatus(kind, text, tone) {
-        const element = document.getElementById("status-" + kind);
-        if (!element) { return; }
-        element.textContent = text;
-        element.className = "status" + (tone ? " " + tone : "");
+    zoom = { scale: 1, tx: 0, ty: 0 };
+    applyZoom();
+
+    box.hidden = false;
+    box.classList.add('is-open');
+    document.body.classList.add('is-locked');
+    document.body.dataset.scrollY = String(window.scrollY || 0);
+    $('sidebar').inert = true;
+    $('main').inert = true;
+    lightboxOpen = true;
+    $('lightbox-close').focus();
+  }
+  function closeLightbox() {
+    if (!lightboxOpen) { return; }
+    var box = lbEls().box;
+    box.classList.remove('is-open', 'is-zoomed', 'is-panning');
+    box.hidden = true;
+    document.body.classList.remove('is-locked');
+    var y = Number(document.body.dataset.scrollY || 0);
+    window.scrollTo(0, y);
+    $('sidebar').inert = false;
+    $('main').inert = false;
+    lightboxOpen = false;
+    zoom = { scale: 1, tx: 0, ty: 0 };
+    lbEls().img.style.transform = 'none';
+
+    if (pausedByLightbox && state.video.jobId) {
+      pausedByLightbox = false;
+      renderViewport();
     }
+    if (lastFocus && lastFocus.focus) { lastFocus.focus(); }
+  }
 
-    function pickFile(kind, file) {
-        const zone = document.getElementById("drop-" + kind);
-        const main = zone.querySelector(".dz-main");
-        const sub = zone.querySelector(".dz-sub");
-        const sizeMb = (file.size / 1024 / 1024).toFixed(2);
-
-        zone.classList.add("picked");
-        main.textContent = "已选择：" + file.name;
-        sub.textContent = sizeMb + " MB · 点击可重新选择";
-
-        if (kind === "image") {
-            imageFile = file;
-            document.getElementById("btn-run-image").disabled = false;
-            setStatus("image", "就绪，点「开始识别」运行检测", "");
-        } else {
-            videoFile = file;
-            document.getElementById("btn-run-video").disabled = false;
-            setStatus("video", "就绪，点「开始处理」逐帧识别", "");
-        }
-    }
-
-    function bindDropzone(kind) {
-        const zone = document.getElementById("drop-" + kind);
-        const input = document.getElementById("file-" + kind);
-
-        zone.addEventListener("click", (event) => {
-            event.preventDefault();
-            input.click();
-        });
-        input.addEventListener("change", () => {
-            if (input.files && input.files[0]) { pickFile(kind, input.files[0]); }
-        });
-
-        ["dragenter", "dragover"].forEach((name) => {
-            zone.addEventListener(name, (event) => {
-                event.preventDefault();
-                zone.classList.add("dragover");
-            });
-        });
-        ["dragleave", "drop"].forEach((name) => {
-            zone.addEventListener(name, (event) => {
-                event.preventDefault();
-                zone.classList.remove("dragover");
-            });
-        });
-        zone.addEventListener("drop", (event) => {
-            const file = event.dataTransfer.files && event.dataTransfer.files[0];
-            if (file) { pickFile(kind, file); }
-        });
-    }
-
-    // ---------- 上传图片 ----------
-
-    async function runImage() {
-        if (!imageFile) { return; }
-
-        const button = document.getElementById("btn-run-image");
-        button.disabled = true;
-        button.textContent = "识别中…";
-        setStatus("image", "正在上传并检测，请稍候…", "");
-
-        const form = new FormData();
-        form.append("file", imageFile);
-
-        try {
-            const response = await fetch("/api/analyze/image", { method: "POST", body: form });
-            const data = await response.json();
-
-            if (!response.ok) {
-                setStatus("image", data.error || "识别失败", "error");
-                return;
-            }
-
-            renderSeats(data);
-            document.getElementById("frame").src = data.annotated || "/api/frame?t=" + Date.now();
-            document.getElementById("frame-note").textContent =
-                "上传图片 " + data.source + "（" + data.image_size[0] + "×" + data.image_size[1] + "）· " +
-                "检出 " + data.detections + " 个目标 · 耗时 " + data.elapsed_ms + " ms";
-
-            const counts = data.counts || {};
-            const absentPart = (counts.ABSENT || 0) > 0 ? " · 不在画面 " + counts.ABSENT : "";
-            setStatus(
-                "image",
-                "识别完成：在座 " + (data.total_persons || 0) + " 人 · 有人 " + (counts.OCCUPIED || 0) +
-                " · 有物无人 " + (counts.OBJECT_ONLY || 0) + " · 空置 " + (counts.EMPTY || 0) + absentPart +
-                "，耗时 " + data.elapsed_ms + " ms",
-                "ok"
-            );
-            document.getElementById("updated").textContent = "单图识别";
-        } catch (error) {
-            setStatus("image", "请求失败：" + error, "error");
-        } finally {
-            button.disabled = false;
-            button.textContent = "开始识别";
-        }
-    }
-
-    // ---------- 上传视频 ----------
-
-    function setBar(percent) {
-        document.getElementById("video-bar").style.width = Math.min(100, Math.max(0, percent)) + "%";
-    }
-
-    function setProgressText(text) {
-        document.getElementById("video-progress-text").textContent = text;
-    }
-
-    async function runVideo() {
-        if (!videoFile) { return; }
-
-        const button = document.getElementById("btn-run-video");
-        button.disabled = true;
-        button.textContent = "上传中…";
-        document.getElementById("video-progress").classList.remove("hidden");
-        document.getElementById("panel-timeline").classList.remove("hidden");
-        setBar(0);
-        setProgressText("正在上传视频（" + (videoFile.size / 1024 / 1024).toFixed(1) + " MB）…");
-
-        const form = new FormData();
-        form.append("file", videoFile);
-        form.append("time_scale", document.getElementById("video-scale").value);
-        form.append("sample_interval", document.getElementById("video-sample").value);
-
-        try {
-            const response = await fetch("/api/analyze/video", { method: "POST", body: form });
-            const data = await response.json();
-
-            if (!response.ok) {
-                setProgressText("上传失败：" + (data.error || "未知错误"));
-                setStatus("video", data.error || "上传失败", "error");
-                return;
-            }
-
-            jobId = data.job_id;
-            document.getElementById("btn-cancel-video").disabled = false;
-            setProgressText("已接收，正在逐帧识别…（时间倍率 " + data.time_scale + " 倍）");
-            startPolling();
-        } catch (error) {
-            setProgressText("上传请求失败：" + error);
-        } finally {
-            button.disabled = false;
-            button.textContent = "开始处理";
-        }
-    }
-
-    function applyJob(data) {
-        renderSeats(Object.assign({}, data, { updated_at: "视频 " + formatDuration(data.video_seconds) }));
-
-        if (data.frame_seq > 0) {
-            document.getElementById("frame").src = "/api/jobs/" + data.job_id + "/frame?seq=" + data.frame_seq;
-            document.getElementById("frame-note").textContent =
-                "视频 " + data.filename + " · 当前帧 " + formatDuration(data.video_seconds) + " · 检出 " +
-                data.detections + " 个目标 · 状态换算已过 " + Math.round(data.simulated_seconds / 60) + " 分钟";
-        }
-
-        setBar(data.progress * 100);
-        setProgressText(
-            (data.status === "running" ? "处理中" : data.status === "done" ? "已完成" : data.status) +
-            " · 已处理 " + data.frames_done + " 帧（" + Math.round(data.progress * 100) + "%）" +
-            " · 视频 " + formatDuration(data.video_seconds) + " / " + formatDuration(data.video_duration) +
-            " · 状态机折算 " + Math.round(data.simulated_seconds / 60) + " 分钟" +
-            " · 检出 " + data.detections + " 个目标"
-        );
-
-        renderTimeline(data.timeline || []);
-        renderVideoEvents(data.events || []);
-    }
-
-    async function pollJob() {
-        if (!jobId) { return; }
-
-        try {
-            const response = await fetch("/api/jobs/" + jobId);
-            const data = await response.json();
-
-            if (!response.ok) {
-                setProgressText("查询失败：" + (data.error || "未知错误"));
-                stopPolling();
-                return;
-            }
-
-            applyJob(data);
-
-            if (data.status === "done" || data.status === "error" || data.status === "cancelled") {
-                stopPolling();
-                document.getElementById("btn-cancel-video").disabled = true;
-
-                if (data.status === "done") {
-                    setStatus(
-                        "video",
-                        "处理完成：共 " + data.frames_done + " 帧，产生 " + (data.events || []).length +
-                        " 起占座，耗时 " + data.elapsed_seconds.toFixed(1) + " 秒",
-                        "ok"
-                    );
-                } else {
-                    setStatus("video", data.message || "任务未完成", "error");
-                }
-                return;
-            }
-        } catch (error) {
-            setProgressText("连接中断：" + error);
-            stopPolling();
-            return;
-        }
-
-        jobTimer = setTimeout(pollJob, 800);
-    }
-
-    function startPolling() {
-        stopPolling();
-        pollJob();
-    }
-
-    function stopPolling() {
-        if (jobTimer) {
-            clearTimeout(jobTimer);
-            jobTimer = null;
-        }
-    }
-
-    async function cancelVideo() {
-        if (!jobId) { return; }
-        document.getElementById("btn-cancel-video").disabled = true;
-        setProgressText("正在取消…");
-        try {
-            await fetch("/api/jobs/" + jobId + "/cancel", { method: "POST" });
-        } catch (error) {
-            setProgressText("取消失败：" + error);
-        }
-    }
-
-    // ---------- 事件绑定 ----------
-
-    document.getElementById("btn-auto").addEventListener("click", () => setAutoRefresh(!autoRefresh));
-    document.getElementById("btn-detect").addEventListener("click", detect);
-    document.getElementById("btn-run-image").addEventListener("click", runImage);
-    document.getElementById("btn-run-video").addEventListener("click", runVideo);
-    document.getElementById("btn-cancel-video").addEventListener("click", cancelVideo);
-
-    document.querySelectorAll(".tab").forEach((tab) => {
-        tab.addEventListener("click", () => setMode(tab.dataset.mode));
+  (function bindLightbox() {
+    var box = $('lightbox'), stage = $('lightbox-stage');
+    $('lightbox-close').addEventListener('click', closeLightbox);
+    box.addEventListener('click', function (e) {
+      if (e.target === box || e.target === stage) { closeLightbox(); }
     });
 
-    bindDropzone("image");
-    bindDropzone("video");
+    box.addEventListener('wheel', function (e) {
+      if (!lightboxOpen) { return; }
+      e.preventDefault();
+      var img = lbEls().img;
+      var rect = img.getBoundingClientRect();
+      var cx = rect.left + rect.width / 2;
+      var cy = rect.top + rect.height / 2;
+      var dx = e.clientX - cx, dy = e.clientY - cy;
+      var prev = zoom.scale;
+      var next = e.deltaY < 0 ? prev * 1.12 : prev / 1.12;
+      next = Math.min(4, Math.max(1, next));
+      if (Math.abs(next - prev) < 0.0005) { return; }
+      var ux = (dx - zoom.tx) / prev;
+      var uy = (dy - zoom.ty) / prev;
+      zoom.scale = next;
+      zoom.tx = dx - ux * next;
+      zoom.ty = dy - uy * next;
+      applyZoom();
+    }, { passive: false });
 
-    // 初始先拉一次库内数据把座位卡填上（只此一次，不开启自动刷新），
-    // 避免用户停留在上传模式时看到空看板
-    (async function initialLoad() {
-        try {
-            const [seatsResponse, eventsResponse] = await Promise.all([
-                fetch("/api/seats"),
-                fetch("/api/events?limit=20")
-            ]);
-            renderSeats(await seatsResponse.json());
-            renderEvents(await eventsResponse.json());
-        } catch (error) {
-            /* 服务未就绪时忽略，用户切到实时看板会再拉 */
-        }
-    })();
+    box.addEventListener('dblclick', function (e) {
+      if (!lightboxOpen) { return; }
+      var img = lbEls().img;
+      var rect = img.getBoundingClientRect();
+      var cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+      var dx = e.clientX - cx, dy = e.clientY - cy;
+      if (zoom.scale > 1) {
+        zoom = { scale: 1, tx: 0, ty: 0 };
+      } else {
+        var next = 2;
+        zoom.tx = dx - dx * next;
+        zoom.ty = dy - dy * next;
+        zoom.scale = next;
+      }
+      applyZoom();
+    });
 
-    setMode("image");
+    var drag = null;
+    stage.addEventListener('pointerdown', function (e) {
+      if (!lightboxOpen || zoom.scale <= 1) { return; }
+      drag = { x: e.clientX, y: e.clientY, tx: zoom.tx, ty: zoom.ty };
+      box.classList.add('is-panning');
+      stage.setPointerCapture(e.pointerId);
+    });
+    stage.addEventListener('pointermove', function (e) {
+      if (!drag) { return; }
+      zoom.tx = drag.tx + (e.clientX - drag.x);
+      zoom.ty = drag.ty + (e.clientY - drag.y);
+      applyZoom();
+    });
+    function endDrag() {
+      drag = null;
+      box.classList.remove('is-panning');
+    }
+    stage.addEventListener('pointerup', endDrag);
+    stage.addEventListener('pointercancel', endDrag);
+
+    document.addEventListener('keydown', function (e) {
+      if (!lightboxOpen) { return; }
+      var step = e.shiftKey ? 120 : 40;
+      if (e.key === 'Escape') { e.preventDefault(); closeLightbox(); return; }
+      if (e.key === '0') { e.preventDefault(); zoom = { scale: 1, tx: 0, ty: 0 }; applyZoom(); return; }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); zoom.tx += step; applyZoom(); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); zoom.tx -= step; applyZoom(); }
+      if (e.key === 'ArrowUp') { e.preventDefault(); zoom.ty += step; applyZoom(); }
+      if (e.key === 'ArrowDown') { e.preventDefault(); zoom.ty -= step; applyZoom(); }
+      if (e.key === 'Tab') {
+        // 遮罩是模态：把焦点限制在关闭按钮上
+        e.preventDefault();
+        $('lightbox-close').focus();
+      }
+    });
+  })();
+
+  /* ====================== 事件绑定 ====================== */
+  navItems.forEach(function (b) {
+    b.addEventListener('click', function () { setView(b.dataset.view); });
+  });
+
+  segBtns.forEach(function (b, i) {
+    b.addEventListener('click', function () { setView(b.dataset.view); });
+    b.addEventListener('keydown', function (e) {
+      var n = segBtns.length, idx = i;
+      if (e.key === 'ArrowRight') { idx = (i + 1) % n; }
+      else if (e.key === 'ArrowLeft') { idx = (i - 1 + n) % n; }
+      else if (e.key === 'Home') { idx = 0; }
+      else if (e.key === 'End') { idx = n - 1; }
+      else { return; }
+      e.preventDefault();
+      segBtns[idx].focus();
+      setView(segBtns[idx].dataset.view);
+    });
+  });
+
+  $('btn-primary').addEventListener('click', function () {
+    var v = state.view;
+    if (v === 'image') { runImage(); }
+    else if (v === 'video') { runVideo(); }
+    else if (v === 'live') { runDetect(); }
+    else if (v === 'events') { loadEvents(); }
+    else if (v === 'timeline') { clearTimeline(); }
+  });
+  $('btn-cancel').addEventListener('click', cancelJob);
+  $('btn-reset').addEventListener('click', resetLive);
+  $('btn-pause').addEventListener('click', function () {
+    state.live.paused = !state.live.paused;
+    if (state.live.paused) { stopLive(); } else { startLive(); }
+    render();
+  });
+  $('fail-retry').addEventListener('click', function () {
+    state.l3 = false;
+    state.live.fails = 0;
+    if (state.view === 'live') {
+      state.live.paused = false;
+      loadLive(true);
+      startLive();
+    } else if (state.view === 'image' && state.image.annotated) {
+      render();
+    } else {
+      render();
+    }
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll('.chip'), function (chip) {
+    chip.addEventListener('click', function () {
+      if (chip.disabled) { return; }
+      state.filter = chip.dataset.filter;
+      render();
+    });
+  });
+
+  $('zoom-btn').addEventListener('click', openLightbox);
+
+  // 文件选择：同一个 input 服务图片/视频两种模式
+  $('file-input').addEventListener('change', function (e) {
+    var f = e.target.files && e.target.files[0];
+    pickFile(f);
+    e.target.value = '';
+  });
+
+  // 拖放
+  var viewport = $('viewport');
+  ['dragenter', 'dragover'].forEach(function (name) {
+    viewport.addEventListener(name, function (e) {
+      if (state.view === 'events' || state.view === 'timeline') { return; }
+      e.preventDefault();
+      viewport.classList.add('is-dragover');
+    });
+  });
+  ['dragleave', 'dragend', 'drop'].forEach(function (name) {
+    viewport.addEventListener(name, function (e) {
+      e.preventDefault();
+      if (name !== 'drop') { viewport.classList.remove('is-dragover'); }
+    });
+  });
+  viewport.addEventListener('drop', function (e) {
+    viewport.classList.remove('is-dragover');
+    if (state.view === 'events' || state.view === 'timeline') { return; }
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) { pickFile(f); }
+  });
+
+  // 列表键盘滚动
+  $('seat-scroll').addEventListener('keydown', function (e) {
+    var sc = $('seat-scroll');
+    var row = parseFloat(getComputedStyle(document.documentElement).fontSize) > 0 ? 44 : 44;
+    if (e.key === 'ArrowDown') { sc.scrollTop += row; }
+    else if (e.key === 'ArrowUp') { sc.scrollTop -= row; }
+    else if (e.key === 'PageDown') { sc.scrollTop += sc.clientHeight; }
+    else if (e.key === 'PageUp') { sc.scrollTop -= sc.clientHeight; }
+    else if (e.key === 'Home') { sc.scrollTop = 0; }
+    else if (e.key === 'End') { sc.scrollTop = sc.scrollHeight; }
+    else { return; }
+    e.preventDefault();
+  });
+
+  // 图片加载失败时的兜底
+  $('frame').addEventListener('error', function () {
+    if (state.view === 'live') {
+      notice('error', '拿不到画面，服务可能还没生成标注图。', function () { loadLive(true); });
+      render();
+    }
+  });
+
+  /* ====================== 启动 ====================== */
+  startClock();
+  resetSeats();
+  render();
+  // 深链：?view=live 等直达某个视图（结果区遵循规范：未检测前显示空态）
+  var qv = '';
+  try { qv = new URLSearchParams(window.location.search).get('view') || ''; } catch (e) { qv = ''; }
+  if (qv && ['image', 'video', 'live', 'events', 'timeline'].indexOf(qv) > -1) { setView(qv); }
+})();
 </script>
 </body>
 </html>
