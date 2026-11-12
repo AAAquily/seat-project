@@ -869,7 +869,7 @@ table{border-collapse:collapse;width:100%}
     threshold: 30,
     updatedAt: null,       // Date
     filter: 'ALL',
-    image: { file: null, url: '', annotated: '', busy: false, meta: null },
+    image: { file: null, url: '', annotated: '', busy: false, meta: null, token: 0 },
     video: {
       file: null, jobId: null, uploading: false, running: false,
       progress: 0, framesDone: 0, framesTotal: 0, videoSeconds: 0, videoDuration: 0,
@@ -1043,8 +1043,7 @@ table{border-collapse:collapse;width:100%}
           html = '<span>正在上传并识别，请稍候…</span>';
         } else if (state.image.file) {
           html = '<span>已选择 ' + esc(state.image.file.name) + '（' +
-            sizeText(state.image.file.size) + '）' +
-            (state.image.annotated ? ' · 视图仍为上次结果' : '') + ' · 点「开始识别」</span>';
+            sizeText(state.image.file.size) + '）· 点「开始识别」</span>';
         } else {
           html = '<span>图片检测 · 单帧识别，不写库</span>';
         }
@@ -1553,16 +1552,25 @@ table{border-collapse:collapse;width:100%}
       state.video.running = false;
       state.video.partial = false;
     } else {
-      // 不撤销 URL：旧标注图仍在显示时保留，直到新一次识别完成
-      if (state.image.url && !state.image.annotated) { URL.revokeObjectURL(state.image.url); }
+      // 新图直接替换旧图：连上一次的标注图、尺寸信息和座位结果一起清掉，
+      // 否则渲染时 currentImage() 优先取 annotated，视图会仍停在上一张
+      if (lightboxOpen) { closeLightbox(); }
+      if (state.image.url) { URL.revokeObjectURL(state.image.url); }
       state.image.file = file;
       state.image.url = URL.createObjectURL(file);
+      state.image.annotated = '';
+      state.image.meta = null;
+      state.image.busy = false;
+      // 令牌自增：作废仍在飞行中的上一次识别请求，避免旧结果落到新图上
+      state.image.token += 1;
+      resetSeats();
     }
     render();
   }
 
   function runImage() {
     if (!state.image.file || state.image.busy) { return; }
+    var token = state.image.token;
     state.image.busy = true;
     clearNotice();
     render();
@@ -1572,6 +1580,7 @@ table{border-collapse:collapse;width:100%}
 
     request('/api/analyze/image', { method: 'POST', body: form })
       .then(function (r) {
+        if (token !== state.image.token) { return; }   // 期间换了图，丢弃旧结果
         if (!r.ok) {
           var msg = String((r.data && r.data.error) || '').slice(0, 60);
           if (r.status === 400 || r.status === 404) {
@@ -1608,6 +1617,7 @@ table{border-collapse:collapse;width:100%}
         render();
       })
       .catch(function (err) {
+        if (token !== state.image.token) { return; }   // 期间换了图，忽略旧请求的错误
         notice('error', errText(err), runImage);
         render();
       });
