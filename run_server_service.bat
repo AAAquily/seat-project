@@ -1,10 +1,10 @@
 @echo off
 rem ============================================================
-rem  è‡ªä¹ åº§ä½ç›‘æµ‹æœåŠ¡ - åŽå°æ‰˜ç®¡å¯åŠ¨è„šæœ¬
-rem  ä¾› Windows ä»»åŠ¡è®¡åˆ’ç¨‹åºæˆ–å…¶ä»–è„±ç¦»ä¼šè¯çš„è¿›ç¨‹è°ƒç”¨ï¼Œ
-rem  ä¸å¸¦äº¤äº’ï¼ˆæ—  pauseï¼‰ï¼Œè¾“å‡ºè¿½åŠ å†™å…¥ logs\uvicorn_service.log
+rem  ×ÔÏ°×ùÎ»¼à²â·þÎñ - ºóÌ¨ÍÐ¹ÜÆô¶¯½Å±¾
+rem  ¹© Windows ÈÎÎñ¼Æ»®³ÌÐò»òÆäËûÍÑÀë»á»°µÄ½ø³Ìµ÷ÓÃ£¬
+rem  ²»´ø½»»¥£¨ÎÞ pause£©£¬Êä³ö×·¼ÓÐ´Èë logs\uvicorn_service.log
 rem ============================================================
-chcp 65001 >nul
+chcp 936 >nul
 cd /d "%~dp0"
 
 set PYTHON_EXE=D:\miniconda3\envs\seat\python.exe
@@ -19,5 +19,5 @@ if not exist "%PYTHON_EXE%" (
 if not exist "logs" mkdir "logs"
 
 echo ================ start %DATE% %TIME% ================ >> logs\uvicorn_service.log
-"%PYTHON_EXE%" -m uvicorn app.main:app --host 127.0.0.1 --port 8000 >> logs\uvicorn_service.log 2>&1
+"%PYTHON_EXE%" -m uvicorn app.main:app --host 0.0.0.0 --port 8000 >> logs\uvicorn_service.log 2>&1
 echo ================ exit  %DATE% %TIME% code=%errorlevel% ================ >> logs\uvicorn_service.log

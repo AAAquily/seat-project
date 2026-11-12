@@ -1,16 +1,19 @@
 @echo off
-chcp 65001 >nul
+chcp 936 >nul
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
-rem ç«¯å£å¯ç”¨çŽ¯å¢ƒå˜é‡è¦†ç›–ï¼šset SEAT_PORT=8011 åŽå†åŒå‡»æœ¬æ–‡ä»¶
+rem ¶Ë¿Ú¿ÉÓÃ»·¾³±äÁ¿¸²¸Ç£ºset SEAT_PORT=8011 ºóÔÙË«»÷±¾ÎÄ¼þ
 if not defined SEAT_PORT set "SEAT_PORT=8000"
-title è‡ªä¹ å®¤åº§ä½ç›‘æµ‹æœåŠ¡ - ç«¯å£ %SEAT_PORT%
+rem ¼àÌýµØÖ·£º0.0.0.0 = Í¬Ò» Wi-Fi ÏÂµÄÊÖ»ú/Æ½°å/ÆäËûµçÄÔ¶¼ÄÜ·ÃÎÊ
+rem          127.0.0.1 = ½ö±¾»ú¿É·ÃÎÊ£¨¸ü°²È«£¬µ«ÆäËûÉè±¸´ò²»¿ª£©
+if not defined SEAT_HOST set "SEAT_HOST=0.0.0.0"
+title ×ÔÏ°ÊÒ×ùÎ»¼à²â·þÎñ - ¶Ë¿Ú %SEAT_PORT%
 
 rem ============================================================
-rem  Python è§£é‡Šå™¨è‡ªåŠ¨æŽ¢æµ‹ï¼ˆæ¢æœºå™¨ä¸ç”¨æ”¹è„šæœ¬ï¼‰
-rem  ä¼˜å…ˆçº§ï¼šæœ¬ç›®å½• .venv -> çŽ¯å¢ƒå˜é‡ SEAT_PYTHON -> conda çš„ seat çŽ¯å¢ƒ
-rem          -> PATH ä¸­çš„ python
-rem  è‹¥éƒ½ä¸åˆé€‚ï¼Œå¯å–æ¶ˆä¸‹é¢ä¸€è¡Œçš„æ³¨é‡Šå¹¶å†™æ­»ç»å¯¹è·¯å¾„ï¼š
+rem  Python ½âÊÍÆ÷×Ô¶¯Ì½²â£¨»»»úÆ÷²»ÓÃ¸Ä½Å±¾£©
+rem  ÓÅÏÈ¼¶£º±¾Ä¿Â¼ .venv ºÍ »·¾³±äÁ¿ SEAT_PYTHON ºÍ conda µÄ seat »·¾³
+rem           ×îºó²ÅÓÃ PATH ÀïµÄ python
+rem  Èô¶¼²»ºÏÊÊ£¬¿ÉÈ¡ÏûÏÂÃæÒ»ÐÐµÄ×¢ÊÍ²¢Ð´ËÀ¾ø¶ÔÂ·¾¶£º
 rem  set "PYTHON_EXE=D:\miniconda3\envs\seat\python.exe"
 rem ============================================================
 set "PYTHON_EXE="
@@ -25,20 +28,30 @@ if not defined PYTHON_EXE (
     for /f "delims=" %%i in ('where python 2^>nul') do if not defined PYTHON_EXE set "PYTHON_EXE=%%i"
 )
 
+rem È¡±¾»ú¾ÖÓòÍø IP£º½âÎö ipconfig µÄ IPv4 ÐÐ£¨²»Ç¶Ì×ÒýºÅ£¬±ÜÃâ for /f ½âÎöÊ§°Ü£©
+set "LAN_IP="
+if not "%SEAT_HOST%"=="127.0.0.1" (
+    for /f "tokens=2 delims=:" %%i in ('ipconfig ^| findstr /c:"IPv4"') do if not defined LAN_IP set "LAN_IP=%%i"
+)
+if defined LAN_IP set "LAN_IP=%LAN_IP: =%"
+
 echo ============================================================
-echo   è‡ªä¹ å®¤åº§ä½å ç”¨ç›‘æµ‹ç³»ç»Ÿ - æœ¬åœ°æœåŠ¡
+echo   ×ÔÏ°ÊÒ×ùÎ»Õ¼ÓÃ¼à²âÏµÍ³ - ±¾µØ·þÎñ
 echo ============================================================
-echo   é¡¹ç›®ç›®å½• : %CD%
+echo   ÏîÄ¿Ä¿Â¼ : %CD%
 echo   Python   : %PYTHON_EXE%
-echo   è®¿é—®åœ°å€ : http://127.0.0.1:%SEAT_PORT%/
-echo   åœæ­¢æœåŠ¡ : åœ¨æœ¬çª—å£æŒ‰ Ctrl+Cï¼Œæˆ–ç›´æŽ¥å…³é—­çª—å£
+echo   ±¾»ú·ÃÎÊ : http://127.0.0.1:%SEAT_PORT%/
+if defined LAN_IP echo   ÆäËûÉè±¸ : http://!LAN_IP!:%SEAT_PORT%/
+if defined LAN_IP echo              Í¬Ò» Wi-Fi ÏÂ£¬ÊÖ»ú/Æ½°åÊäÈëÉÏÃæµØÖ·¼´¿É
+if not defined LAN_IP echo   ÆäËûÉè±¸ : Ã»È¡µ½¾ÖÓòÍø IP£¬ÇëÓÃ ipconfig ²é¿´ IPv4 ºóÆ´ÉÏ :%SEAT_PORT%
+echo   Í£Ö¹·þÎñ : ÔÚ±¾´°¿Ú°´ Ctrl+C£¬»òÖ±½Ó¹Ø±Õ´°¿Ú
 echo ============================================================
 echo.
 
 if not defined PYTHON_EXE (
-    echo [é”™è¯¯] æ²¡æœ‰æ‰¾åˆ°å¯ç”¨çš„ Python è§£é‡Šå™¨ã€‚
-    echo        è¯·å…ˆæŒ‰ã€Šäº¤æŽ¥è¯´æ˜Žã€‹å®‰è£… Anaconda å¹¶åˆ›å»º seat çŽ¯å¢ƒï¼Œ
-    echo        æˆ–è®¾ç½®çŽ¯å¢ƒå˜é‡ SEAT_PYTHON æŒ‡å‘ python.exeã€‚
+    echo [´íÎó] Ã»ÓÐÕÒµ½¿ÉÓÃµÄ Python ½âÊÍÆ÷¡£
+    echo        ÇëÏÈ°´¡¶½»½ÓËµÃ÷¡·°²×° Anaconda ²¢´´½¨ seat »·¾³£¬
+    echo        »òÉèÖÃ»·¾³±äÁ¿ SEAT_PYTHON Ö¸Ïò python.exe¡£
     echo.
     pause
     exit /b 1
@@ -46,9 +59,9 @@ if not defined PYTHON_EXE (
 
 "%PYTHON_EXE%" -c "import ultralytics, fastapi, uvicorn, cv2, yaml" >nul 2>&1
 if errorlevel 1 (
-    echo [é”™è¯¯] è¿™ä¸ª Python ç¼ºå°‘ä¾èµ–ï¼Œæ— æ³•å¯åŠ¨æœåŠ¡ï¼š
+    echo [´íÎó] Õâ¸ö Python È±ÉÙÒÀÀµ£¬ÎÞ·¨Æô¶¯·þÎñ£º
     echo        %PYTHON_EXE%
-    echo        è¯·å…ˆæ‰§è¡Œï¼š
+    echo        ÇëÏÈÖ´ÐÐ£º
     echo        "%PYTHON_EXE%" -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
     echo.
     pause
@@ -57,23 +70,24 @@ if errorlevel 1 (
 
 netstat -ano | findstr /R /C:"TCP.*:%SEAT_PORT% .*LISTENING" >nul
 if not errorlevel 1 (
-    echo [æç¤º] %SEAT_PORT% ç«¯å£å·²ç»è¢«å ç”¨ï¼ŒæœåŠ¡å¯èƒ½å·²ç»åœ¨è¿è¡Œäº†ã€‚
-    echo        å…ˆè¯•ç€ç›´æŽ¥æ‰“å¼€ http://127.0.0.1:%SEAT_PORT%/
-    echo        å¦‚æžœéœ€è¦é‡å¯ï¼šå…³é—­çª—å£åŽè¿è¡Œ stop_server.batï¼Œå†åŒå‡»æœ¬æ–‡ä»¶ã€‚
+    echo [ÌáÊ¾] %SEAT_PORT% ¶Ë¿ÚÒÑ¾­±»Õ¼ÓÃ£¬·þÎñ¿ÉÄÜÒÑ¾­ÔÚÔËÐÐÁË¡£
+    echo        ÏÈÊÔ×ÅÖ±½Ó´ò¿ª http://127.0.0.1:%SEAT_PORT%/
+    if defined LAN_IP echo        ÆäËûÉè±¸´ò¿ª http://!LAN_IP!:%SEAT_PORT%/
+    echo        Èç¹ûÐèÒªÖØÆô£º¹Ø±Õ´°¿ÚºóÔËÐÐ stop_server.bat£¬ÔÙË«»÷±¾ÎÄ¼þ¡£
     echo.
     start "" http://127.0.0.1:%SEAT_PORT%/
     pause
     exit /b 0
 )
 
-echo æ­£åœ¨å¯åŠ¨ï¼Œé¦–æ¬¡å¯åŠ¨è¦åŠ è½½æ¨¡åž‹ï¼Œçº¦ 5-10 ç§’ï¼Œæµè§ˆå™¨ä¼šè‡ªåŠ¨æ‰“å¼€â€¦â€¦
+echo ÕýÔÚÆô¶¯£¬Ê×´ÎÆô¶¯Òª¼ÓÔØÄ£ÐÍ£¬Ô¼ 5-10 Ãë£¬ä¯ÀÀÆ÷»á×Ô¶¯´ò¿ª¡­¡­
 start "" /min cmd /c "timeout /t 6 >nul & start http://127.0.0.1:%SEAT_PORT%/"
 
-"%PYTHON_EXE%" -m uvicorn app.main:app --host 127.0.0.1 --port %SEAT_PORT%
+"%PYTHON_EXE%" -m uvicorn app.main:app --host %SEAT_HOST% --port %SEAT_PORT%
 
 echo.
 echo ============================================================
-echo   æœåŠ¡å·²åœæ­¢ï¼Œé€€å‡ºç  %errorlevel%
-echo   å¦‚æžœä¸Šæ–¹æœ‰çº¢è‰²æŠ¥é”™ä¿¡æ¯ï¼Œè¯·æˆªå›¾åé¦ˆï¼Œä¸è¦ç›´æŽ¥å…³çª—å£
+echo   ·þÎñÒÑÍ£Ö¹£¬ÍË³öÂë %errorlevel%
+echo Èç¹ûÉÏ·½ÓÐºìÉ«±¨´íÐÅÏ¢£¬Çë½ØÍ¼·´À¡£¬²»ÒªÖ±½Ó¹Ø´°¿Ú
 echo ============================================================
 pause
