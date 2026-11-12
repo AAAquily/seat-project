@@ -402,9 +402,16 @@ async def analyze_image(file: UploadFile = File(...)):
                          or CONFIG["model"].get("fixed_weights")
                          or resolve_weights())
         fixed_path = fixed_weights if os.path.isabs(fixed_weights) else os.path.join(PROJECT_ROOT, fixed_weights)
+        # 标定通道双模型融合（与 judge_seats CLI 一致）：主权重 + calib_ensemble 追加权重，
+        # 检测框取并集去重。v6 强在椅上摊物与侧身遮挡，v9b（人工标注重训）强在挂包与红凳。
+        ensemble_paths = [fixed_path]
+        for extra in (CONFIG["model"].get("calib_ensemble") or []):
+            extra_path = extra if os.path.isabs(extra) else os.path.join(PROJECT_ROOT, extra)
+            if os.path.isfile(extra_path) and extra_path not in ensemble_paths:
+                ensemble_paths.append(extra_path)
         detections, canvas = detect_image(
             frame,
-            fixed_path,
+            ensemble_paths if len(ensemble_paths) > 1 else fixed_path,
             CONFIG["model"].get("scene_conf", CONFIG["model"]["conf"]),
             CONFIG["model"]["imgsz"],
             CONFIG["model"]["device"],
@@ -415,7 +422,8 @@ async def analyze_image(file: UploadFile = File(...)):
         # 过滤墙上海报区的小假人框（高度低于配置阈值，避免虚增在座人数）
         min_height = float(CONFIG.get("occupancy", {}).get("min_person_box_height", 0) or 0)
         detections = filter_tiny_persons(
-            detections, min_height, (frame.shape[1], frame.shape[0])
+            detections, min_height, (frame.shape[1], frame.shape[0]),
+            seat_rois=[s["roi"] for s in scene_seats],
         )
         # 标定通道人框置信度下限（与 judge_seats CLI 一致）：0.30 以下的「人」
         # 几乎全是海报人像、挂衣空椅这类误检

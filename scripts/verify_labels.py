@@ -18,30 +18,46 @@ import sys
 
 import cv2
 
-# 与 prelabel.py 保持一致的类别清单
-PROJECT_CLASSES = ["person", "book", "bag", "cup", "item"]
+# 默认类别清单：从 LabelImg 的 classes.txt 读取，避免脚本内的类别表与标注工具脱节
+DEFAULT_CLASSES_FILE = os.path.join("data", "workspace", "classes.txt")
 
-# 预览图绘制颜色（BGR），与 prelabel.py 一致
+# 内置兜底清单（classes.txt 缺失时使用），顺序即 YOLO 类别索引
+FALLBACK_CLASSES = ["person", "book", "bag", "cup", "item", "stool"]
+
+# 预览图绘制颜色（BGR），未知类别统一用灰白色
 CLASS_COLORS = {
     "person": (60, 60, 220),
     "book": (60, 180, 60),
     "bag": (200, 120, 40),
     "cup": (200, 60, 200),
     "item": (200, 200, 60),
+    "stool": (120, 120, 120),
 }
+
+
+def load_classes(classes_file: str) -> list:
+    """读取类别清单：每行一个类名，空行忽略；文件缺失时回退内置清单。"""
+    if classes_file and os.path.isfile(classes_file):
+        with open(classes_file, "r", encoding="utf-8") as handle:
+            names = [line.strip() for line in handle if line.strip()]
+        if names:
+            return names
+
+    return list(FALLBACK_CLASSES)
 
 
 def parse_arguments() -> argparse.Namespace:
     """解析命令行参数。"""
     parser = argparse.ArgumentParser(description="校验 YOLO 标签并可视化指定图片")
     parser.add_argument("--labels", required=True, help="标签目录")
+    parser.add_argument("--classes", default=DEFAULT_CLASSES_FILE, help="类别清单文件（classes.txt）")
     parser.add_argument("--images", default="", help="图片目录，配合 --visualize 使用")
     parser.add_argument("--visualize", default="", help="要画回原图的文件基名")
     parser.add_argument("--preview-dir", default="data/verify_preview", help="预览图输出目录")
     return parser.parse_args()
 
 
-def verify_label_file(label_path: str) -> list:
+def verify_label_file(label_path: str, class_names: list) -> list:
     """校验单个标签文件，返回问题列表（空列表表示通过）。"""
     problems = []
 
@@ -56,8 +72,8 @@ def verify_label_file(label_path: str) -> list:
                 continue
 
             class_index = int(float(parts[0]))
-            if class_index < 0 or class_index >= len(PROJECT_CLASSES):
-                problems.append(f"第 {line_number} 行类别索引 {class_index} 越界（合法 0—{len(PROJECT_CLASSES) - 1}）")
+            if class_index < 0 or class_index >= len(class_names):
+                problems.append(f"第 {line_number} 行类别索引 {class_index} 越界（合法 0—{len(class_names) - 1}）")
 
             values = [float(value) for value in parts[1:]]
             for value in values:
@@ -71,7 +87,7 @@ def verify_label_file(label_path: str) -> list:
     return problems
 
 
-def visualize_label(label_path: str, image_path: str, output_path: str) -> None:
+def visualize_label(label_path: str, image_path: str, output_path: str, class_names: list) -> None:
     """把标签框按归一化坐标换算回像素，画到原图上另存。"""
     image = cv2.imread(image_path)
     if image is None:
@@ -87,7 +103,7 @@ def visualize_label(label_path: str, image_path: str, output_path: str) -> None:
                 continue
 
             class_index = int(float(parts[0]))
-            class_name = PROJECT_CLASSES[class_index]
+            class_name = class_names[class_index] if class_index < len(class_names) else f"class{class_index}"
             center_x, center_y, box_width, box_height = [float(value) for value in parts[1:]]
 
             x1 = int((center_x - box_width / 2) * image_width)
@@ -95,7 +111,7 @@ def visualize_label(label_path: str, image_path: str, output_path: str) -> None:
             x2 = int((center_x + box_width / 2) * image_width)
             y2 = int((center_y + box_height / 2) * image_height)
 
-            color = CLASS_COLORS[class_name]
+            color = CLASS_COLORS.get(class_name, (180, 180, 180))
             cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
             cv2.putText(image, class_name, (x1 + 3, max(16, y1 - 6)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
@@ -113,6 +129,9 @@ def main() -> int:
         print(f"[错误] 标签目录不存在：{arguments.labels}")
         return 1
 
+    class_names = load_classes(arguments.classes)
+    print(f"[类别] {len(class_names)} 类：{', '.join(class_names)}（来源：{arguments.classes}）")
+
     label_files = sorted(
         name for name in os.listdir(arguments.labels)
         if name.endswith(".txt") and name != "classes.txt"
@@ -122,7 +141,7 @@ def main() -> int:
     files_with_problems = 0
 
     for file_name in label_files:
-        problems = verify_label_file(os.path.join(arguments.labels, file_name))
+        problems = verify_label_file(os.path.join(arguments.labels, file_name), class_names)
         box_count = sum(
             1 for line in open(os.path.join(arguments.labels, file_name), encoding="utf-8")
             if line.split()
@@ -149,7 +168,7 @@ def main() -> int:
             print(f"[错误] 找不到待可视化文件：{arguments.visualize}")
             return 1
         output_path = os.path.join(arguments.preview_dir, f"{arguments.visualize}_check.jpg")
-        visualize_label(label_path, image_path, output_path)
+        visualize_label(label_path, image_path, output_path, class_names)
 
     return 1 if files_with_problems > 0 else 0
 

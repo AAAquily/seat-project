@@ -84,7 +84,7 @@ def load_config(config_path: str) -> dict:
 
 def filter_tiny_persons(detections: list, min_height: float, image_size: tuple = None,
                         poster_conf: float = 0.60, poster_top: float = 0.42,
-                        poster_height: float = 0.12) -> list:
+                        poster_height: float = 0.12, seat_rois: list = None) -> list:
     """过滤两类假人框：① 高度不足 min_height 的碎片；② 墙上海报区的低置信人像。
 
     ① 背景：v6 在 real_02 左桌上方「团队介绍」海报区输出过 35×30 的假人框
@@ -95,6 +95,10 @@ def filter_tiny_persons(detections: list, min_height: float, image_size: tuple =
        规则与动态通道一致：位于画面上部（top < 40%H）、很矮（< 12%H）、
        且置信度偏低（< 0.60）→ 丢弃。真实远端小人多在画面中部以下，
        且 0.60 以上的高置信小框（real_02 右墙 50px 的人）不会被误杀。
+    ③ 但标定机位是近景构图，座位本身就在画面上半部（real_04 的 B05 座位
+       y=498/1280=39%），规则②会把真坐着的人当海报误杀——所以传入 seat_rois
+       时，人框中心落在任一标定座位内的**一律保留**（座位表已经声明那是座位，
+       海报不会长在座位上）。
     设 min_height=0 且不给 image_size 时原样返回。
     """
     kept = []
@@ -109,9 +113,44 @@ def filter_tiny_persons(detections: list, min_height: float, image_size: tuple =
             image_h = float(image_size[1] or 0)
             if image_h > 0 and d["box"][1] < poster_top * image_h \
                     and height < poster_height * image_h and d["conf"] < poster_conf:
+                if seat_rois:
+                    cx = (d["box"][0] + d["box"][2]) / 2
+                    cy = (d["box"][1] + d["box"][3]) / 2
+                    if any(r[0] <= cx <= r[2] and r[1] <= cy <= r[3] for r in seat_rois):
+                        kept.append(d)
+                        continue
                 continue
         kept.append(d)
     return kept
+
+
+def merge_detections(primary: list, secondary: list, person_dedup: float = 0.70) -> list:
+    """融合两个模型的检测结果（同类框按重叠去重，保留置信度更高的那个）。
+
+    动机：标定机位是固定视角，v6 与 v9b 各有所长——v6 对「椅子上摊着的外套」
+    「侧身被遮挡的人」更敏感（real_04 B05、real_07 C02），v9b 对挂包/红凳召回
+    更稳（real_08 D07 conf 0.86）。取并集能把两边的召回都拿到，代价是可能多出
+    误检框，由后续判定规则（人重叠率阈值、物品面积下限、座位级阈值）消化。
+    """
+    merged = list(primary)
+    for detection in secondary:
+        duplicate = False
+        for existing in merged:
+            if existing["class_id"] != detection["class_id"]:
+                continue
+            if detection["class_id"] == 0:
+                duplicate = same_person(detection["box"], existing["box"], person_dedup)
+            else:
+                inter = intersection_area(detection["box"], existing["box"])
+                smaller = min(box_area(detection["box"]), box_area(existing["box"]))
+                duplicate = smaller > 0 and inter / smaller >= 0.60
+            if duplicate:
+                if detection["conf"] > existing["conf"]:
+                    existing.update(detection)
+                break
+        if not duplicate:
+            merged.append(detection)
+    return merged
 
 
 def resolve_weights(config: dict, override: str) -> str:
@@ -371,7 +410,17 @@ def judge_seats(detections: list, seats: list, occupancy: dict, classes: dict = 
     center_fallback = occupancy.get("person_center_fallback", True)
     fallback_margin = float(occupancy.get("person_center_fallback_margin", 60))
     stool_exist_ratio = float(occupancy.get("stool_exist_ratio", 0.30))
+    # 跨座位「同人碎片」阈值：相邻座位前后排的人本来就重度重叠（real_05 前景白
+    # 衣女与其左后白衣男重叠 0.60），0.50 会把真人当碎片丢掉；0.70 只合并几乎
+    # 完全重合的双框。必须在这里初始化——它同时被「中心点兜底」和「溢出回填」
+    # 两处使用，若只在兜底循环内赋值，当没有任何框走兜底时后者会 UnboundLocalError
+    # （v9 在 real_02/real_03 上就因此崩溃）。
+    cross_dedup = float(occupancy.get("person_cross_dedup_ratio", 0.70))
     stool_id = (classes or {}).get("stool_id")
+    # 物品类白名单：classes.object_ids 之外的类别一律不计「有物」。
+    # stool 是「座位实体」而不是「占座物品」——v9 起 stool 类召回大幅提升，
+    # 空红凳若被当物品计入，会把所有空凳座位误判成「有物无人」。
+    object_ids = (classes or {}).get("object_ids")
 
     # 第零步：座位实体存在性检查——配置了 exists_check 的座位，画面里没有实体就判 ABSENT。
     # 优先用 YOLO 的 stool 检测；检不到时用 HSV 红色色块兜底（红塑料凳颜色特征明确）。
@@ -441,6 +490,9 @@ def judge_seats(detections: list, seats: list, occupancy: dict, classes: dict = 
                     }
                 )
         else:
+            # 物品类白名单（classes.object_ids）：凳子这类「座位实体」不计物品
+            if object_ids and detection["class_id"] not in object_ids:
+                continue
             # 物品：既要落在座位内，又要有足够面积，避免远端噪点误判
             seat = seats[seat_index]
             seat_box = seat["object_roi"] if seat.get("object_roi") else seat["roi"]
@@ -485,11 +537,7 @@ def judge_seats(detections: list, seats: list, occupancy: dict, classes: dict = 
                 print(f"[dbg] box={detection['box']} conf={detection['conf']:.2f} assigned={seat_index} ratio={ratio:.2f} 候选={[(d, seats[i]['id']) for d, i in sorted(candidates)]}")
 
             # 跨座位去重：若该框与任何座位已命中的人框高度重叠（同人碎片），不再兜底计数，
-            # 否则同一个人会被「主框 + 碎片框」计成两次。
-            # 阈值取 0.70（2026-11-07 由 0.50 上调）：相邻座位前后排的人本来就重度重叠
-            # （real_05 前景白衣女与其左后白衣男重叠 0.60），0.50 会把真人当碎片丢掉，
-            # 导致该座判「有物无人」；几乎完全重合的双框才应视为同一人。
-            cross_dedup = float(occupancy.get("person_cross_dedup_ratio", 0.70))
+            # 否则同一个人会被「主框 + 碎片框」计成两次。阈值见函数开头 cross_dedup。
             duplicate_of_existing = False
             for other_index, hits in hits_by_seat.items():
                 for existing in hits["person"]:
@@ -794,27 +842,42 @@ def main() -> int:
 
     print(f"[推理] 权重={weights} conf={conf} imgsz={imgsz} 座位数={len(seats)} 通道={'标定' if matched else '动态'}")
 
-    model = YOLO(weights)
-    prediction = model.predict(source=arguments.image, conf=conf, imgsz=imgsz, device=config["model"]["device"], verbose=False)
-    result = prediction[0]
+    # 标定通道可配「双模型融合」：主权重之外再跑若干权重，检测框取并集去重。
+    # 只有一个权重时行为与单模型完全一致，不影响动态通道。
+    weight_list = [weights]
+    if matched:
+        for extra in (config["model"].get("calib_ensemble") or []):
+            if os.path.isfile(extra) and os.path.normpath(extra) not in {os.path.normpath(w) for w in weight_list}:
+                weight_list.append(extra)
+    if len(weight_list) > 1:
+        print(f"[融合] 追加权重={weight_list[1:]}")
 
     detections = []
-    for box in result.boxes:
-        coordinates = box.xyxy[0].tolist()
-        detections.append(
+    result = None
+    for weight in weight_list:
+        model = YOLO(weight)
+        prediction = model.predict(source=arguments.image, conf=conf, imgsz=imgsz,
+                                   device=config["model"]["device"], verbose=False)
+        result = prediction[0]
+        current = [
             {
                 "class_id": int(box.cls[0]),
                 "conf": float(box.conf[0]),
-                "box": [int(coordinates[0]), int(coordinates[1]), int(coordinates[2]), int(coordinates[3])],
+                "box": [int(v) for v in box.xyxy[0].tolist()],
             }
-        )
+            for box in result.boxes
+        ]
+        if len(weight_list) > 1:
+            print(f"[融合] {os.path.basename(os.path.dirname(os.path.dirname(weight)))} 检出 {len(current)} 个")
+        detections = current if not detections else merge_detections(detections, current)
 
     print(f"[检测] 共 {len(detections)} 个目标")
 
     # 过滤墙上海报区的小假人框（高度低于配置阈值的人框，见 filter_tiny_persons）
     min_height = float(config.get("occupancy", {}).get("min_person_box_height", 0) or 0)
     detections = filter_tiny_persons(detections, min_height,
-                                     (result.orig_img.shape[1], result.orig_img.shape[0]))
+                                     (result.orig_img.shape[1], result.orig_img.shape[0]),
+                                     seat_rois=[s["roi"] for s in seats])
     # 标定通道的人框置信度下限：scene_conf 0.15 是为低对比物品（椅上摊着的外套、
     # 帆布包）放宽的，人框不需要这么低——0.30 以下的「人」几乎全是海报人像、
     # 挂衣空椅这类误检（real_08 挂白外套椅 conf 0.23），留着会被兜底吸进空座

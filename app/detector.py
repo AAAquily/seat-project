@@ -24,28 +24,38 @@ def get_model(weights: str) -> YOLO:
 
 def detect_image(
     image: np.ndarray,
-    weights: str,
+    weights,
     conf: float,
     imgsz: int,
     device: str = "cpu",
 ) -> Tuple[list, np.ndarray]:
     """对单帧图像推理，返回 (检测列表, 原始画面)。
 
+    weights 可以是单个路径，也可以是路径列表——列表时逐个推理并取并集去重
+    （标定通道的「双模型融合」，与 scripts/judge_seats.py 行为一致）。
     检测列表元素结构：{"class_id": int, "conf": float, "box": [x1, y1, x2, y2]}
     """
-    model = get_model(weights)
-    prediction = model.predict(source=image, conf=conf, imgsz=imgsz, device=device, verbose=False)
-    result = prediction[0]
+    from judge_seats import merge_detections
 
+    paths = [weights] if isinstance(weights, str) else list(weights)
     detections = []
-    for box in result.boxes:
-        coordinates = box.xyxy[0].tolist()
-        detections.append(
-            {
-                "class_id": int(box.cls[0]),
-                "conf": float(box.conf[0]),
-                "box": [int(coordinates[0]), int(coordinates[1]), int(coordinates[2]), int(coordinates[3])],
-            }
-        )
+    canvas = image
+    for path in paths:
+        model = get_model(path)
+        prediction = model.predict(source=image, conf=conf, imgsz=imgsz, device=device, verbose=False)
+        result = prediction[0]
+        canvas = result.orig_img
 
-    return detections, result.orig_img
+        current = []
+        for box in result.boxes:
+            coordinates = box.xyxy[0].tolist()
+            current.append(
+                {
+                    "class_id": int(box.cls[0]),
+                    "conf": float(box.conf[0]),
+                    "box": [int(coordinates[0]), int(coordinates[1]), int(coordinates[2]), int(coordinates[3])],
+                }
+            )
+        detections = current if not detections else merge_detections(detections, current)
+
+    return detections, canvas

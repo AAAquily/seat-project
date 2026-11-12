@@ -17,14 +17,26 @@ import random
 import shutil
 import sys
 
-# 项目类别，顺序与 prelabel.py 保持一致
-PROJECT_CLASSES = ["person", "book", "bag", "cup", "item"]
+# 内置兜底类别清单（classes.txt 缺失时使用），顺序即 YOLO 类别索引
+FALLBACK_CLASSES = ["person", "book", "bag", "cup", "item", "stool"]
 
 # 默认划分比例：训练 7 / 验证 1.5 / 测试 1.5
 DEFAULT_RATIOS = {"train": 0.70, "val": 0.15, "test": 0.15}
 
 # 固定随机种子，保证划分结果可复现
 SPLIT_SEED = 20261104
+
+
+def load_class_names(workspace: str) -> list:
+    """从工作区的 classes.txt 读取类别清单，缺失时回退内置清单。"""
+    classes_path = os.path.join(workspace, "classes.txt")
+    if os.path.isfile(classes_path):
+        with open(classes_path, "r", encoding="utf-8") as handle:
+            names = [line.strip() for line in handle if line.strip()]
+        if names:
+            return names
+
+    return list(FALLBACK_CLASSES)
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -98,7 +110,7 @@ def copy_subset(workspace: str, out_root: str, subset_name: str, base_names: lis
         )
 
 
-def write_data_yaml(out_root: str) -> None:
+def write_data_yaml(out_root: str, class_names: list) -> None:
     """生成 ultralytics 训练用的 data.yaml。
 
     不写 path 字段：ultralytics 会把 yaml 所在目录当作数据集根目录，
@@ -108,8 +120,8 @@ def write_data_yaml(out_root: str) -> None:
         "train: images/train",
         "val: images/val",
         "test: images/test",
-        f"nc: {len(PROJECT_CLASSES)}",
-        f"names: {PROJECT_CLASSES}",
+        f"nc: {len(class_names)}",
+        f"names: {class_names}",
     ]
 
     yaml_path = os.path.join(out_root, "data.yaml")
@@ -117,9 +129,9 @@ def write_data_yaml(out_root: str) -> None:
         yaml_file.write("\n".join(yaml_lines) + "\n")
 
 
-def count_boxes(labels_dir: str) -> dict:
+def count_boxes(labels_dir: str, class_names: list) -> dict:
     """统计某个标签目录下每个类别的框数量，用于检查类别均衡度。"""
-    class_counts = {index: 0 for index in range(len(PROJECT_CLASSES))}
+    class_counts = {index: 0 for index in range(len(class_names))}
 
     for file_name in os.listdir(labels_dir):
         if not file_name.endswith(".txt"):
@@ -127,8 +139,14 @@ def count_boxes(labels_dir: str) -> dict:
         with open(os.path.join(labels_dir, file_name), "r", encoding="utf-8") as label_file:
             for line in label_file:
                 parts = line.split()
-                if parts:
-                    class_counts[int(float(parts[0]))] += 1
+                if not parts:
+                    continue
+                class_index = int(float(parts[0]))
+                # 超出类别表的索引不会中断统计，单独记为越界计数
+                if class_index in class_counts:
+                    class_counts[class_index] += 1
+                else:
+                    class_counts[-1] = class_counts.get(-1, 0) + 1
     return class_counts
 
 
@@ -145,6 +163,9 @@ def main() -> int:
         print("[错误] 工作区里没有任何「图片 + 标签」成对的样本")
         return 1
 
+    class_names = load_class_names(arguments.workspace)
+    print(f"[类别] {len(class_names)} 类：{', '.join(class_names)}")
+
     for file_name in missing_labels:
         print(f"[警告] 缺少标签，已跳过：{file_name}")
 
@@ -154,15 +175,16 @@ def main() -> int:
         copy_subset(arguments.workspace, arguments.out, subset_name, base_names)
         print(f"[划分] {subset_name}: {len(base_names)} 张")
 
-    write_data_yaml(arguments.out)
+    write_data_yaml(arguments.out, class_names)
     print(f"[完成] data.yaml 已生成：{os.path.join(arguments.out, 'data.yaml')}")
 
     print("-" * 70)
     for subset_name in subsets:
         labels_dir = os.path.join(arguments.out, "labels", subset_name)
-        class_counts = count_boxes(labels_dir)
+        class_counts = count_boxes(labels_dir, class_names)
         count_text = "，".join(
-            f"{PROJECT_CLASSES[index]}={count}" for index, count in class_counts.items()
+            f"{class_names[index] if 0 <= index < len(class_names) else '越界'}={count}"
+            for index, count in class_counts.items()
         )
         print(f"[统计] {subset_name}: {count_text}")
 

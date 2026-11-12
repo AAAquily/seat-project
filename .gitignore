@@ -25,6 +25,8 @@ data/raw/*
 data/labels/*
 data/images/*
 data/seat_dataset/
+data/seat_dataset_v9*/
+data/seat_dataset_v9b*/
 data/*.db
 data/exports/
 !data/raw/.gitkeep

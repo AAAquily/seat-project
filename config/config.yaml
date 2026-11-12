@@ -16,6 +16,11 @@ model:
                                 # 配套 dynamic_seats.COCO_PERSON_FLOOR=0.60 + 墙面海报过滤规则
   fixed_weights: runs/train/seat_v6/weights/best.pt   # 标定场景（上传图片命中参考图）专用：
                                 # 白天外套椅帆布包 conf≈0.19 只有 v6 检得出，v7b 会把该座误判「空置」
+  calib_ensemble:               # 标定通道双模型融合（检测框取并集去重，单模型时留空）
+    - runs/train/seat_v6/weights/best.pt
+    - runs/train/seat_v9b/weights/best.pt
+                                # v6 强在「椅上摊物/侧身被遮挡的人」，v9b（用户手工标注重训）
+                                # 强在挂包与红凳召回；并集后两侧召回都能拿到
   conf: 0.25                    # 置信度阈值：低于此值的检测框丢弃（0.35 会漏掉白纸等低对比物品）
   scene_conf: 0.15              # 标定场景（上传图片走固定座位表）专用阈值：
                                 # 白天外套椅的帆布包置信度约 0.19，0.25 会漏检导致「有物无人」判成「空座」
@@ -254,7 +259,6 @@ scene_references:
   #   object_roi 指向椅旁空地：红椅本体被 v8 误检为 item（conf 0.84），
   #   物品框只看 object_roi 即可避免「空椅判有物」
   - image: data/raw_real/real_09.jpg
-    weights: runs/train/seat_v8/weights/best.pt
     # 人物排除区：右上「团队成员介绍」海报墙（证件照是真人人像，v8 会以
     # 0.6+ 高置信度检出 person，如 [1573,259,1639,328] conf 0.674）。
     # 人框中心落入该矩形即丢弃；E09 真人框中心 y≈590 在矩形下方不受影响

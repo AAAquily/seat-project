@@ -10,8 +10,10 @@
 
 用法：
     python scripts/build_dataset_v8.py            # 生成（可重复执行，先清空输出目录）
+    python scripts/build_dataset_v8.py --src data\\seat_dataset_v9 --dst data\\seat_dataset_v9_aug
 """
 
+import argparse
 import os
 import random
 import shutil
@@ -22,8 +24,12 @@ import numpy as np
 PROJECT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(PROJECT)
 
+# 源数据集与输出目录：默认值保持旧版行为，可在命令行覆盖
 SRC = "data/seat_dataset"
 DST = "data/seat_dataset_v8"
+
+# 标注工作区（图片/标签的原始来源）：源数据集找不到的样本回退到这里取
+WORKSPACE = "data/workspace"
 
 # 2×2 瓦片：目标框中心在瓦片内才保留，框坐标裁到瓦片边界
 TILE_GRID = 2
@@ -52,7 +58,28 @@ def load_labels(stem):
                 if len(parts) >= 5:
                     rows.append([int(parts[0])] + [float(v) for v in parts[1:5]])
             return rows
+    # 源数据集没有该样本（新划分下可能落进 val/test）时回退标注工作区
+    fallback = os.path.join(WORKSPACE, "labels", stem + ".txt")
+    if os.path.isfile(fallback):
+        rows = []
+        for line in open(fallback, encoding="utf-8"):
+            parts = line.split()
+            if len(parts) >= 5:
+                rows.append([int(parts[0])] + [float(v) for v in parts[1:5]])
+        return rows
     return []
+
+
+def find_image(stem):
+    """按 stem 找原图：先查源数据集三个子集，再回退标注工作区。"""
+    for split in ("train", "val", "test"):
+        p = os.path.join(SRC, "images", split, stem + ".jpg")
+        if os.path.isfile(p):
+            return p
+    fallback = os.path.join(WORKSPACE, "images", stem + ".jpg")
+    if os.path.isfile(fallback):
+        return fallback
+    return ""
 
 
 def remap(rows, x0, y0, tw, th, sw, sh):
@@ -83,6 +110,18 @@ def write_label(path, rows):
 
 
 def main():
+    global SRC, DST, WORKSPACE
+
+    parser = argparse.ArgumentParser(description="构建带瓦片增广与海报负样本的训练集")
+    parser.add_argument("--src", default=SRC, help="源数据集目录（含 images/labels 与 data.yaml）")
+    parser.add_argument("--dst", default=DST, help="输出目录（可重复执行，会先清空）")
+    parser.add_argument("--workspace", default=WORKSPACE, help="标注工作区（源数据集缺样本时的回退来源）")
+    args = parser.parse_args()
+
+    SRC = args.src
+    DST = args.dst
+    WORKSPACE = args.workspace
+
     if os.path.isdir(DST):
         shutil.rmtree(DST)
     for split in ("train", "val", "test"):
@@ -134,7 +173,7 @@ def main():
 
     # 3) 海报负样本
     for stem, (x1, y1, x2, y2) in NEGATIVE_CROPS:
-        src_img = os.path.join(train_dir, stem + ".jpg")
+        src_img = find_image(stem)
         img = cv2.imread(src_img)
         if img is None:
             print(f"[跳过] 负样本源图不存在 {stem}")
@@ -156,7 +195,7 @@ def main():
     #     这里把海报墙裁剪按接近 1:1 贴到大画布四象限（不重叠），保持证件照真实大小。
     canvas_sources = []
     for stem, (x1, y1, x2, y2) in NEGATIVE_CROPS:
-        img = cv2.imread(os.path.join(train_dir, stem + ".jpg"))
+        img = cv2.imread(find_image(stem))
         if img is None:
             continue
         height, width = img.shape[:2]
